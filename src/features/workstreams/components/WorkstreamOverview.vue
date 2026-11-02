@@ -3,7 +3,8 @@ import { computed, onMounted } from "vue";
 import { storeToRefs } from "pinia";
 import { useRouter } from "vue-router";
 import { useWorkstreamsStore } from "../stores/workstreamsStore";
-import WorkstreamNameModal from "./WorkstreamNameModal.vue";
+import WorkstreamCreateModal from "./WorkstreamCreateModal.vue";
+import type { WorkstreamItemRef } from "@/types";
 
 const props = defineProps<{ status: "active" | "completed" }>();
 
@@ -17,8 +18,8 @@ const dateFormat = new Intl.DateTimeFormat(undefined, { dateStyle: "medium" });
 
 const shown = computed(() => (props.status === "completed" ? completed.value : active.value));
 
-async function create(name: string): Promise<void> {
-  const workstream = await store.create(name);
+async function create(name: string, items: WorkstreamItemRef[]): Promise<void> {
+  const workstream = await store.create(name, items);
   await router.push({ name: "workstream", params: { id: workstream.id } });
 }
 
@@ -79,14 +80,9 @@ onMounted(() => void store.load());
     class="py-16"
     icon="i-lucide-layers"
     :title="completed.length ? 'No active workstreams' : 'No workstreams yet'"
-    description="Bundle related Jira issues and pull requests into workstreams."
+    description="Bundle related Jira issues, pull requests and todos into workstreams."
     :actions="[{ label: 'New workstream', icon: 'i-lucide-plus', onClick: () => (createOpen = true) }]"
   />
 
-  <WorkstreamNameModal
-    v-model:open="createOpen"
-    title="New workstream"
-    submit-label="Create"
-    :save="create"
-  />
+  <WorkstreamCreateModal v-model:open="createOpen" :save="create" />
 </template>

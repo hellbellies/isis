@@ -47,6 +47,18 @@ pub fn get(conn: &Connection, id: i64) -> AppResult<Todo> {
     .ok_or_else(not_found)
 }
 
+/// Todos whose title or description contains `term` (ASCII case-insensitive).
+pub fn search(conn: &Connection, term: &str, limit: i64) -> AppResult<Vec<Todo>> {
+    Ok(conn
+        .prepare(&format!(
+            "SELECT {COLUMNS} FROM {FROM}
+             WHERE instr(lower(t.title || ' ' || t.description), lower(?1)) > 0
+             ORDER BY {ORDER} LIMIT ?2"
+        ))?
+        .query_map(params![term, limit], todo_from_row)?
+        .collect::<Result<Vec<_>, _>>()?)
+}
+
 /// Whether a todo exists; `id` is the text form used in `workstream_items`.
 pub fn exists(conn: &Connection, id: &str) -> AppResult<bool> {
     let Ok(id) = id.parse::<i64>() else {

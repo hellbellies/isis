@@ -58,6 +58,19 @@ pub fn list_for_workstream(conn: &Connection, workstream_id: i64) -> AppResult<V
         .collect::<Result<Vec<_>, _>>()?)
 }
 
+/// Cached pull requests whose title or `owner/name#number` contains `term`
+/// (ASCII case-insensitive), whatever their state, most recently updated first.
+pub fn search(conn: &Connection, term: &str, limit: i64) -> AppResult<Vec<PullRequest>> {
+    Ok(conn
+        .prepare(&format!(
+            "SELECT {COLUMNS} FROM {FROM}
+             WHERE instr(lower(p.repository || '#' || p.number || ' ' || p.title), lower(?1)) > 0
+             ORDER BY p.updated_at DESC LIMIT ?2"
+        ))?
+        .query_map(params![term, limit], pull_request_from_row)?
+        .collect::<Result<Vec<_>, _>>()?)
+}
+
 pub fn exists(conn: &Connection, id: &str) -> AppResult<bool> {
     Ok(url(conn, id)?.is_some())
 }

@@ -79,6 +79,19 @@ pub fn list_for_workstream(conn: &Connection, workstream_id: i64) -> AppResult<V
         .collect::<Result<Vec<_>, _>>()?)
 }
 
+/// Cached issues whose key or summary contains `term` (ASCII case-insensitive),
+/// most recently updated first.
+pub fn search(conn: &Connection, term: &str, limit: i64) -> AppResult<Vec<JiraIssue>> {
+    Ok(conn
+        .prepare(&format!(
+            "SELECT {ISSUE_COLUMNS} FROM {ISSUE_FROM}
+             WHERE instr(lower(i.key || ' ' || i.summary), lower(?1)) > 0
+             ORDER BY i.updated DESC, i.key LIMIT ?2"
+        ))?
+        .query_map(params![term, limit], issue_from_row)?
+        .collect::<Result<Vec<_>, _>>()?)
+}
+
 /// Whether an issue with this id is cached.
 pub fn exists(conn: &Connection, id: &str) -> AppResult<bool> {
     Ok(conn

@@ -19,6 +19,7 @@ import type {
   Workstream,
   WorkstreamDetail,
   WorkstreamItemRef,
+  WorkstreamItemSearch,
 } from "@/types";
 import { isAppError } from "@/types";
 
@@ -53,7 +54,7 @@ interface Commands {
   delete_todo: { args: { id: number }; result: null };
   list_workstreams: { args: Record<string, never>; result: Workstream[] };
   get_workstream: { args: { id: number }; result: WorkstreamDetail };
-  create_workstream: { args: { name: string }; result: Workstream };
+  create_workstream: { args: { name: string; items: WorkstreamItemRef[] }; result: Workstream };
   rename_workstream: { args: { id: number; name: string }; result: Workstream };
   set_workstream_completed: { args: { id: number; completed: boolean }; result: Workstream };
   delete_workstream: { args: { id: number }; result: null };
@@ -61,6 +62,7 @@ interface Commands {
     args: { item: WorkstreamItemRef; workstreamId: number | null };
     result: null;
   };
+  search_workstream_items: { args: { query: string }; result: WorkstreamItemSearch };
 }
 
 type CommandName = keyof Commands;

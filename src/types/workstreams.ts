@@ -22,6 +22,13 @@ export interface WorkstreamDetail {
   todos: Todo[];
 }
 
+/** Mirrors `WorkstreamItemSearch` in `src-tauri/src/models/workstreams.rs`. */
+export interface WorkstreamItemSearch {
+  jiraIssues: JiraIssue[];
+  pullRequests: PullRequest[];
+  todos: Todo[];
+}
+
 /** Mirrors `WorkstreamItemType` in `src-tauri/src/models/workstreams.rs`. */
 export type WorkstreamItemType = "jiraIssue" | "pullRequest" | "todo";
 

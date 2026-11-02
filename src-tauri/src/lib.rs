@@ -46,6 +46,7 @@ pub fn run() {
             commands::workstreams::set_workstream_completed,
             commands::workstreams::delete_workstream,
             commands::workstreams::set_item_workstream,
+            commands::workstreams::search_workstream_items,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

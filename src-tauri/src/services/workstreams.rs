@@ -9,11 +9,13 @@ use rusqlite::{Connection, OptionalExtension, Row, params};
 
 use crate::error::{AppError, AppResult};
 use crate::models::workstreams::{
-    Workstream, WorkstreamDetail, WorkstreamItemRef, WorkstreamItemType,
+    Workstream, WorkstreamDetail, WorkstreamItemRef, WorkstreamItemSearch, WorkstreamItemType,
 };
 use crate::services::{jira_issues, pull_requests, todos};
 
 const MAX_NAME_LENGTH: usize = 80;
+/// Most results returned per item type by [`search_items`].
+const SEARCH_LIMIT: i64 = 50;
 
 /// Columns read by [`workstream_from_row`].
 const COLUMNS: &str = "w.id, w.name, w.created_at, w.completed_at,
@@ -67,6 +69,22 @@ pub fn create(conn: &Connection, name: &str, now_ms: i64) -> AppResult<Workstrea
         params![name, now_ms],
     )?;
     get(conn, conn.last_insert_rowid())
+}
+
+/// Creates a workstream and moves `items` into it, all or nothing.
+pub fn create_with_items(
+    conn: &mut Connection,
+    name: &str,
+    items: &[WorkstreamItemRef],
+    now_ms: i64,
+) -> AppResult<Workstream> {
+    let tx = conn.transaction()?;
+    let id = create(&tx, name, now_ms)?.id;
+    for item in items {
+        link(&tx, item, id, now_ms)?;
+    }
+    tx.commit()?;
+    get(conn, id)
 }
 
 pub fn rename(conn: &Connection, id: i64, name: &str) -> AppResult<Workstream> {
@@ -123,32 +141,56 @@ pub fn set_item_workstream(
     now_ms: i64,
 ) -> AppResult<()> {
     let tx = conn.transaction()?;
-    let item_type = item.item_type.as_str();
     match workstream_id {
         Some(workstream_id) => {
             get(&tx, workstream_id)?;
-            if !item_exists(&tx, item)? {
-                return Err(AppError::Validation("This item no longer exists".into()));
-            }
-            tx.execute(
-                "INSERT INTO workstream_items (item_type, item_id, workstream_id, added_at)
-                 VALUES (?1, ?2, ?3, ?4)
-                 ON CONFLICT (item_type, item_id) DO UPDATE SET
-                     workstream_id = excluded.workstream_id, added_at = excluded.added_at
-                 WHERE workstream_id != excluded.workstream_id",
-                params![item_type, item.item_id, workstream_id, now_ms],
-            )?;
+            link(&tx, item, workstream_id, now_ms)?;
         }
         None => {
             tx.execute(
                 "DELETE FROM workstream_items WHERE item_type = ?1 AND item_id = ?2",
-                params![item_type, item.item_id],
+                params![item.item_type.as_str(), item.item_id],
             )?;
             prune(&tx, item.item_type)?;
         }
     }
     tx.commit()?;
     Ok(())
+}
+
+/// Links an existing item to `workstream_id`, moving it out of any other workstream.
+fn link(
+    conn: &Connection,
+    item: &WorkstreamItemRef,
+    workstream_id: i64,
+    now_ms: i64,
+) -> AppResult<()> {
+    if !item_exists(conn, item)? {
+        return Err(AppError::Validation("This item no longer exists".into()));
+    }
+    conn.execute(
+        "INSERT INTO workstream_items (item_type, item_id, workstream_id, added_at)
+         VALUES (?1, ?2, ?3, ?4)
+         ON CONFLICT (item_type, item_id) DO UPDATE SET
+             workstream_id = excluded.workstream_id, added_at = excluded.added_at
+         WHERE workstream_id != excluded.workstream_id",
+        params![item.item_type.as_str(), item.item_id, workstream_id, now_ms],
+    )?;
+    Ok(())
+}
+
+/// Items of every type whose text contains `query` (trimmed, ASCII case-insensitive),
+/// including items already in a workstream. A blank query matches nothing.
+pub fn search_items(conn: &Connection, query: &str) -> AppResult<WorkstreamItemSearch> {
+    let term = query.trim();
+    if term.is_empty() {
+        return Ok(WorkstreamItemSearch::default());
+    }
+    Ok(WorkstreamItemSearch {
+        jira_issues: jira_issues::search(conn, term, SEARCH_LIMIT)?,
+        pull_requests: pull_requests::search(conn, term, SEARCH_LIMIT)?,
+        todos: todos::search(conn, term, SEARCH_LIMIT)?,
+    })
 }
 
 fn item_exists(conn: &Connection, item: &WorkstreamItemRef) -> AppResult<bool> {
@@ -301,6 +343,103 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM workstream_items", [], |r| r.get(0))
             .unwrap();
         assert_eq!(count, 0);
+    }
+
+    /// Caches pull request `id` in `repository`.
+    fn insert_pull_request(
+        conn: &Connection,
+        id: &str,
+        number: i64,
+        title: &str,
+        repository: &str,
+    ) {
+        conn.execute(
+            "INSERT INTO github_pull_requests (id, number, title, url, repository, author, state,
+                 is_draft, updated_at, authored_by_me, review_requested)
+             VALUES (?1, ?2, ?3, 'https://github.com', ?4, 'me', 'open', 0, '2026-11-02', 1, 0)",
+            params![id, number, title, repository],
+        )
+        .unwrap();
+    }
+
+    fn insert_todo(conn: &Connection, title: &str, description: &str) -> String {
+        conn.execute(
+            "INSERT INTO todos (title, description, created_at, updated_at) VALUES (?1, ?2, 0, 0)",
+            params![title, description],
+        )
+        .unwrap();
+        conn.last_insert_rowid().to_string()
+    }
+
+    #[test]
+    fn search_items_matches_every_type_ignoring_case() {
+        let conn = db::open_in_memory();
+        insert_issue(&conn, "1", true); // FOO-1, "Summary"
+        insert_issue(&conn, "2", false);
+        insert_pull_request(&conn, "pr1", 42, "Checkout redesign", "acme/shop");
+        insert_pull_request(&conn, "pr2", 7, "Bump deps", "acme/api");
+        let todo = insert_todo(&conn, "Write spec", "for the CHECKOUT flow");
+        insert_todo(&conn, "Unrelated", "");
+
+        let found = search_items(&conn, "  checkout ").unwrap();
+        assert!(found.jira_issues.is_empty());
+        assert_eq!(found.pull_requests.len(), 1);
+        assert_eq!(found.pull_requests[0].id, "pr1");
+        assert_eq!(found.todos.len(), 1);
+        assert_eq!(found.todos[0].id.to_string(), todo);
+
+        // Jira keys, including issues not assigned to the user, and PR references.
+        let ids: Vec<_> = search_items(&conn, "foo-")
+            .unwrap()
+            .jira_issues
+            .into_iter()
+            .map(|i| i.id)
+            .collect();
+        assert_eq!(ids.len(), 2);
+        assert_eq!(
+            search_items(&conn, "shop#42").unwrap().pull_requests.len(),
+            1
+        );
+        // LIKE wildcards are matched literally.
+        assert_eq!(
+            search_items(&conn, "%").unwrap(),
+            WorkstreamItemSearch::default()
+        );
+        assert_eq!(
+            search_items(&conn, "   ").unwrap(),
+            WorkstreamItemSearch::default()
+        );
+    }
+
+    #[test]
+    fn create_with_items_links_and_moves_items_atomically() {
+        let mut conn = db::open_in_memory();
+        insert_issue(&conn, "1", true);
+        insert_pull_request(&conn, "pr1", 1, "Title", "acme/shop");
+        let todo = insert_todo(&conn, "Todo", "");
+        let old = create(&conn, "Old", NOW).unwrap();
+        set_item_workstream(&mut conn, &jira("1"), Some(old.id), NOW).unwrap();
+
+        let items = [
+            jira("1"),
+            WorkstreamItemRef {
+                item_type: WorkstreamItemType::PullRequest,
+                item_id: "pr1".into(),
+            },
+            WorkstreamItemRef {
+                item_type: WorkstreamItemType::Todo,
+                item_id: todo,
+            },
+        ];
+        let new = create_with_items(&mut conn, "New", &items, NOW).unwrap();
+        assert_eq!(new.item_count, 3);
+        assert_eq!(get(&conn, old.id).unwrap().item_count, 0);
+
+        // An unknown item rolls back the whole creation.
+        let err = create_with_items(&mut conn, "Broken", &[jira("1"), jira("404")], NOW);
+        assert!(matches!(err, Err(AppError::Validation(_))));
+        assert_eq!(list(&conn).unwrap().len(), 2);
+        assert_eq!(get(&conn, new.id).unwrap().item_count, 3);
     }
 
     #[test]

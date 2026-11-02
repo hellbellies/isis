@@ -29,6 +29,16 @@ pub struct WorkstreamDetail {
     pub todos: Vec<Todo>,
 }
 
+/// Items of every type matching a search term, to pick from when building a workstream.
+/// Mirrored by `WorkstreamItemSearch` in `src/types/workstreams.ts`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkstreamItemSearch {
+    pub jira_issues: Vec<JiraIssue>,
+    pub pull_requests: Vec<PullRequest>,
+    pub todos: Vec<Todo>,
+}
+
 /// Kinds of items a workstream can hold. Mirrored by `WorkstreamItemType` in `src/types/workstreams.ts`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
