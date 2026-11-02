@@ -1,0 +1,38 @@
+use serde::{Serialize, Serializer, ser::SerializeStruct};
+
+/// Application-wide error type returned from every IPC command.
+///
+/// Serialized to the frontend as `{ kind, message }` — mirrored by
+/// `AppError` in `src/types/error.ts`.
+#[derive(Debug, thiserror::Error)]
+pub enum AppError {
+    #[error("I/O error: {0}")]
+    Io(#[from] std::io::Error),
+
+    #[error("serialization error: {0}")]
+    Serde(#[from] serde_json::Error),
+
+    #[error("tauri error: {0}")]
+    Tauri(#[from] tauri::Error),
+}
+
+impl AppError {
+    fn kind(&self) -> &'static str {
+        match self {
+            AppError::Io(_) => "io",
+            AppError::Serde(_) => "serde",
+            AppError::Tauri(_) => "tauri",
+        }
+    }
+}
+
+impl Serialize for AppError {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut state = serializer.serialize_struct("AppError", 2)?;
+        state.serialize_field("kind", self.kind())?;
+        state.serialize_field("message", &self.to_string())?;
+        state.end()
+    }
+}
+
+pub type AppResult<T> = Result<T, AppError>;

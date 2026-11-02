@@ -1,0 +1,53 @@
+import { defineConfig } from "vite";
+import vue from "@vitejs/plugin-vue";
+import ui from "@nuxt/ui/vite";
+import process from "node:process";
+import { fileURLToPath, URL } from "node:url";
+
+const host = process.env.TAURI_DEV_HOST;
+
+// https://vite.dev/config/
+export default defineConfig(() => ({
+  plugins: [
+    vue(),
+    ui({
+      // No vue-router in this app; links render as plain anchors.
+      router: false,
+      // Composables are imported explicitly (e.g. from "@nuxt/ui/composables").
+      autoImport: false,
+      // Components (U*) are auto-registered; types land in components.d.ts.
+      components: { dts: "src/components.d.ts" },
+      ui: {
+        colors: { primary: "indigo", neutral: "zinc" },
+      },
+    }),
+  ],
+
+  resolve: {
+    alias: {
+      "@": fileURLToPath(new URL("./src", import.meta.url)),
+    },
+  },
+
+  // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
+  //
+  // 1. prevent Vite from obscuring rust errors
+  clearScreen: false,
+  // 2. tauri expects a fixed port, fail if that port is not available
+  server: {
+    port: 1420,
+    strictPort: true,
+    host: host || false,
+    hmr: host
+      ? {
+          protocol: "ws",
+          host,
+          port: 1421,
+        }
+      : undefined,
+    watch: {
+      // 3. tell Vite to ignore watching `src-tauri`
+      ignored: ["**/src-tauri/**"],
+    },
+  },
+}));
