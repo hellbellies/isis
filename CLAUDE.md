@@ -46,7 +46,7 @@ src-tauri/migrations/     NNN_<name>.sql, applied in order by rusqlite_migration
 - Persistence: small whole-document settings → JSON in `app_config_dir`; queryable app data → SQLite (`rusqlite`, `app_data_dir/isis.db`); secrets → OS keychain via `services/secrets.rs` (`KeyringStore`, one entry per token), never sent back to the frontend.
 - Database: services take `&Connection` (tests use `db::open_in_memory()`). Never hold `Db::lock()` across an `.await`. Schema changes are new migration files — never edit an applied one.
 - Import from other features via their `index.ts`, not deep paths. Keep feature dependencies one-way (`workstreams` → `jira`, never back); a page can wire features together through slots instead.
-- Workstreams link items of any type via `workstream_items (item_type, item_id)`. A new item type adds a `WorkstreamItemType` variant, an `item_exists`/`prune` arm in `services/workstreams.rs`, and a list in `WorkstreamDetail`.
+- Workstreams link items of any type via `workstream_items (item_type, item_id)`. A new item type adds a `WorkstreamItemType` variant, an `item_exists`/`prune` arm in `services/workstreams.rs` (prune is a no-op for user-owned items such as todos; cached external items are pruned when unlinked), and a list in `WorkstreamDetail`.
 
 ### 4. UI
 - Nuxt UI (`@nuxt/ui`, plain-Vue mode via `@nuxt/ui/vite`) is the component library. Reach for a `U*` component (UButton, UCard, UModal, UTable, …) before writing markup by hand. Docs: https://ui.nuxt.com/docs/components

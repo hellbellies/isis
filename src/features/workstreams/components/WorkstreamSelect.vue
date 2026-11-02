@@ -18,7 +18,12 @@ const store = useWorkstreamsStore();
 const { workstreams, loaded } = storeToRefs(store);
 const toast = useToast();
 
-const items = computed(() => workstreams.value.map((w) => ({ label: w.name, value: w.id })));
+/** Active workstreams, plus the item's current one if it was completed (so its name still shows). */
+const items = computed(() =>
+  workstreams.value
+    .filter((w) => w.completedAt === null || w.id === props.workstreamId)
+    .map((w) => ({ label: w.name, value: w.id })),
+);
 
 async function assign(workstreamId: number | null): Promise<void> {
   if (workstreamId === props.workstreamId) return;

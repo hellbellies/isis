@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { onMounted, watch } from "vue";
+import { onMounted, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
 import { useToast } from "@nuxt/ui/composables";
 import { JiraIssueRow, useJiraIssuesStore } from "@/features/jira";
 import { PullRequestRow } from "@/features/github";
+import { TodoEditModal, TodoRow } from "@/features/todos";
 import { useWorkstreamsStore } from "../stores/workstreamsStore";
-import type { AppError, WorkstreamItemRef } from "@/types";
+import type { AppError, Todo, WorkstreamItemRef } from "@/types";
 
 /** Lists everything in a workstream, grouped by item type. */
 const props = defineProps<{ id: number }>();
@@ -21,6 +22,20 @@ async function removeItem(item: WorkstreamItemRef): Promise<void> {
   } catch (err: unknown) {
     toast.add({ title: (err as AppError).message, color: "error", icon: "i-lucide-circle-alert" });
   }
+}
+
+/** Reloads this workstream and the list (item counts) after an item changed. */
+async function refresh(): Promise<void> {
+  await Promise.all([store.loadDetail(props.id), store.load()]);
+}
+
+// One dialog for adding a todo to this workstream (no `todo`) or editing one.
+const todoModalOpen = ref(false);
+const editingTodo = ref<Todo | null>(null);
+
+function openTodo(todo: Todo | null): void {
+  editingTodo.value = todo;
+  todoModalOpen.value = true;
 }
 
 watch(() => props.id, (id) => void store.loadDetail(id));
@@ -41,6 +56,58 @@ onMounted(() => {
   />
 
   <div v-else-if="current" class="flex flex-col gap-6">
+    <UCard :ui="{ body: 'p-0 sm:p-0' }">
+      <template #header>
+        <div class="flex items-center gap-2">
+          <UIcon name="i-lucide-list-todo" class="size-4 text-muted" />
+          <h2 class="font-semibold text-highlighted">Todos</h2>
+          <UBadge color="neutral" variant="subtle" size="sm" :label="current.todos.length" />
+          <UButton
+            class="ml-auto"
+            color="neutral"
+            variant="ghost"
+            size="sm"
+            icon="i-lucide-plus"
+            label="Add todo"
+            @click="openTodo(null)"
+          />
+        </div>
+      </template>
+
+      <ul v-if="current.todos.length" class="divide-y divide-default">
+        <TodoRow
+          v-for="todo in current.todos"
+          :key="todo.id"
+          :todo="todo"
+          @edit="openTodo"
+          @changed="refresh"
+        >
+          <template #actions>
+            <UTooltip text="Remove from workstream (keeps the todo)">
+              <UButton
+                color="neutral"
+                variant="ghost"
+                size="sm"
+                icon="i-lucide-x"
+                :aria-label="`Remove ${todo.title} from workstream`"
+                @click="removeItem({ itemType: 'todo', itemId: String(todo.id) })"
+              />
+            </UTooltip>
+          </template>
+        </TodoRow>
+      </ul>
+      <p v-else class="px-4 py-6 text-center text-sm text-muted">
+        No todos yet. Use “Add todo” to create one in this workstream.
+      </p>
+    </UCard>
+
+    <TodoEditModal
+      v-model:open="todoModalOpen"
+      :todo="editingTodo"
+      :workstream-id="id"
+      @changed="refresh"
+    />
+
     <UCard :ui="{ body: 'p-0 sm:p-0' }">
       <template #header>
         <div class="flex items-center gap-2">

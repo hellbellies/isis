@@ -4,6 +4,7 @@
 pub mod github;
 pub mod jira;
 pub mod settings;
+pub mod todos;
 pub mod workstreams;
 
 use std::time::{SystemTime, UNIX_EPOCH};
