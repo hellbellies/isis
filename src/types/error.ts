@@ -1,5 +1,5 @@
 /** Mirrors `AppError` in `src-tauri/src/error.rs`. */
-export type AppErrorKind = "io" | "serde" | "tauri" | "keyring" | "validation" | "jira" | "db";
+export type AppErrorKind = "io" | "serde" | "tauri" | "keyring" | "validation" | "jira" | "github" | "db";
 
 export interface AppError {
   kind: AppErrorKind;

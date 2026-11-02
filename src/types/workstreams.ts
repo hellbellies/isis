@@ -1,3 +1,4 @@
+import type { PullRequest } from "./github";
 import type { JiraIssue } from "./jira";
 
 /** Mirrors `Workstream` in `src-tauri/src/models/workstreams.rs`. */
@@ -14,14 +15,15 @@ export interface Workstream {
 export interface WorkstreamDetail {
   workstream: Workstream;
   jiraIssues: JiraIssue[];
+  pullRequests: PullRequest[];
 }
 
 /** Mirrors `WorkstreamItemType` in `src-tauri/src/models/workstreams.rs`. */
-export type WorkstreamItemType = "jiraIssue";
+export type WorkstreamItemType = "jiraIssue" | "pullRequest";
 
 /** Mirrors `WorkstreamItemRef` in `src-tauri/src/models/workstreams.rs`. */
 export interface WorkstreamItemRef {
   itemType: WorkstreamItemType;
-  /** The item's id in its own source, e.g. the Jira issue id. */
+  /** The item's id in its own source, e.g. the Jira issue id or GitHub node id. */
   itemId: string;
 }

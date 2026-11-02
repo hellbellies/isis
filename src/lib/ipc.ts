@@ -1,6 +1,10 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
   AppError,
+  GitHubSettings,
+  GitHubSettingsInput,
+  GitHubSyncSummary,
+  GitHubUser,
   JiraIssueList,
   JiraSettings,
   JiraSettingsInput,
@@ -8,6 +12,7 @@ import type {
   JiraStatusRef,
   JiraSyncSummary,
   JiraUser,
+  PullRequestList,
   Settings,
   Workstream,
   WorkstreamDetail,
@@ -32,6 +37,13 @@ interface Commands {
   open_jira_issue: { args: { key: string }; result: null };
   get_jira_status_filter: { args: Record<string, never>; result: JiraStatusFilter };
   set_jira_status_filter: { args: { selected: JiraStatusRef[] }; result: JiraStatusFilter };
+  get_github_settings: { args: Record<string, never>; result: GitHubSettings };
+  update_github_settings: { args: { input: GitHubSettingsInput }; result: GitHubSettings };
+  clear_github_token: { args: Record<string, never>; result: GitHubSettings };
+  test_github_connection: { args: { token: string | null }; result: GitHubUser };
+  list_pull_requests: { args: Record<string, never>; result: PullRequestList };
+  sync_pull_requests: { args: Record<string, never>; result: GitHubSyncSummary };
+  open_pull_request: { args: { id: string }; result: null };
   list_workstreams: { args: Record<string, never>; result: Workstream[] };
   get_workstream: { args: { id: number }; result: WorkstreamDetail };
   create_workstream: { args: { name: string }; result: Workstream };

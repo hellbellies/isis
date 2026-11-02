@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { SettingsPanel } from "@/features/settings";
 import { JiraSettingsPanel } from "@/features/jira";
+import { GitHubSettingsPanel } from "@/features/github";
 </script>
 
 <template>
@@ -12,6 +13,7 @@ import { JiraSettingsPanel } from "@/features/jira";
       <div class="mx-auto flex w-full max-w-xl flex-col gap-6">
         <SettingsPanel />
         <JiraSettingsPanel />
+        <GitHubSettingsPanel />
       </div>
     </template>
   </UDashboardPanel>

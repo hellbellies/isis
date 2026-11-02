@@ -1,17 +1,17 @@
-use std::time::{SystemTime, UNIX_EPOCH};
-
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_opener::OpenerExt;
 
+use super::now_ms;
 use crate::db::Db;
 use crate::error::AppResult;
 use crate::models::jira::{
     JiraIssueList, JiraSettings, JiraSettingsInput, JiraStatusFilter, JiraStatusRef,
     JiraSyncSummary, JiraUser,
 };
-use crate::services::jira::{self, KeyringStore};
+use crate::services::jira;
 use crate::services::jira_client::JiraClient;
 use crate::services::jira_issues;
+use crate::services::secrets::KeyringStore;
 
 const TOKEN_STORE: KeyringStore = KeyringStore::new("ch.imfeld.isis", "jira-api-token");
 
@@ -84,10 +84,4 @@ pub async fn open_jira_issue(app: AppHandle, key: String) -> AppResult<()> {
     let url = jira::issue_url(&dir, &key)?;
     app.opener().open_url(url, None::<&str>)?;
     Ok(())
-}
-
-fn now_ms() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |elapsed| elapsed.as_millis() as i64)
 }
