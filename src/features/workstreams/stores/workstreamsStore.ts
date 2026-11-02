@@ -1,7 +1,13 @@
 import { defineStore } from "pinia";
 import { computed, ref } from "vue";
 import { call } from "@/lib/ipc";
-import type { AppError, Workstream, WorkstreamDetail, WorkstreamItemRef } from "@/types";
+import type {
+  AppError,
+  Workstream,
+  WorkstreamDetail,
+  WorkstreamItemRef,
+  WorkstreamItemSearch,
+} from "@/types";
 
 /**
  * Workstreams and the currently opened workstream.
@@ -45,8 +51,9 @@ export const useWorkstreamsStore = defineStore("workstreams", () => {
     }
   }
 
-  async function create(name: string): Promise<Workstream> {
-    const workstream = await call("create_workstream", { name });
+  /** Creates a workstream, moving `items` into it (out of any other workstream). */
+  async function create(name: string, items: WorkstreamItemRef[] = []): Promise<Workstream> {
+    const workstream = await call("create_workstream", { name, items });
     await load();
     return workstream;
   }
@@ -79,6 +86,11 @@ export const useWorkstreamsStore = defineStore("workstreams", () => {
     await Promise.all([load(), openId === undefined ? undefined : loadDetail(openId)]);
   }
 
+  /** Jira issues, pull requests and todos whose text contains `query`, to pick items from. */
+  function searchItems(query: string): Promise<WorkstreamItemSearch> {
+    return call("search_workstream_items", { query });
+  }
+
   return {
     workstreams,
     active,
@@ -94,5 +106,6 @@ export const useWorkstreamsStore = defineStore("workstreams", () => {
     setCompleted,
     remove,
     assign,
+    searchItems,
   };
 });
