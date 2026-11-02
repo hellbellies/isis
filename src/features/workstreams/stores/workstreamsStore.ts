@@ -1,5 +1,5 @@
 import { defineStore } from "pinia";
-import { ref } from "vue";
+import { computed, ref } from "vue";
 import { call } from "@/lib/ipc";
 import type { AppError, Workstream, WorkstreamDetail, WorkstreamItemRef } from "@/types";
 
@@ -12,6 +12,14 @@ export const useWorkstreamsStore = defineStore("workstreams", () => {
   const workstreams = ref<Workstream[]>([]);
   const loaded = ref(false);
   const error = ref<AppError | null>(null);
+
+  const active = computed(() => workstreams.value.filter((w) => w.completedAt === null));
+  /** Most recently completed first. */
+  const completed = computed(() =>
+    workstreams.value
+      .filter((w) => w.completedAt !== null)
+      .sort((a, b) => (b.completedAt ?? 0) - (a.completedAt ?? 0)),
+  );
 
   const current = ref<WorkstreamDetail | null>(null);
   const currentError = ref<AppError | null>(null);
@@ -50,6 +58,14 @@ export const useWorkstreamsStore = defineStore("workstreams", () => {
     return workstream;
   }
 
+  /** Marks a workstream completed, or reopens it. */
+  async function setCompleted(id: number, isCompleted: boolean): Promise<Workstream> {
+    const workstream = await call("set_workstream_completed", { id, completed: isCompleted });
+    if (current.value?.workstream.id === id) current.value.workstream = workstream;
+    await load();
+    return workstream;
+  }
+
   async function remove(id: number): Promise<void> {
     await call("delete_workstream", { id });
     if (current.value?.workstream.id === id) current.value = null;
@@ -65,6 +81,8 @@ export const useWorkstreamsStore = defineStore("workstreams", () => {
 
   return {
     workstreams,
+    active,
+    completed,
     loaded,
     error,
     current,
@@ -73,6 +91,7 @@ export const useWorkstreamsStore = defineStore("workstreams", () => {
     loadDetail,
     create,
     rename,
+    setCompleted,
     remove,
     assign,
   };

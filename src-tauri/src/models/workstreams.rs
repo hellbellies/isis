@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::models::github::PullRequest;
 use crate::models::jira::JiraIssue;
+use crate::models::todos::Todo;
 
 /// Mirrored by `Workstream` in `src/types/workstreams.ts`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -11,6 +12,8 @@ pub struct Workstream {
     pub name: String,
     /// Unix epoch milliseconds.
     pub created_at: i64,
+    /// Unix epoch milliseconds when marked completed; `None` while active.
+    pub completed_at: Option<i64>,
     /// Number of linked items of all types.
     pub item_count: i64,
 }
@@ -23,6 +26,7 @@ pub struct WorkstreamDetail {
     pub workstream: Workstream,
     pub jira_issues: Vec<JiraIssue>,
     pub pull_requests: Vec<PullRequest>,
+    pub todos: Vec<Todo>,
 }
 
 /// Kinds of items a workstream can hold. Mirrored by `WorkstreamItemType` in `src/types/workstreams.ts`.
@@ -31,6 +35,7 @@ pub struct WorkstreamDetail {
 pub enum WorkstreamItemType {
     JiraIssue,
     PullRequest,
+    Todo,
 }
 
 impl WorkstreamItemType {
@@ -39,6 +44,7 @@ impl WorkstreamItemType {
         match self {
             Self::JiraIssue => "jira_issue",
             Self::PullRequest => "github_pr",
+            Self::Todo => "todo",
         }
     }
 }

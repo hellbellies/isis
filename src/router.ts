@@ -25,6 +25,7 @@ export const router = createRouter({
       name: "pull-requests",
       component: () => import("@/pages/PullRequestsPage.vue"),
     },
+    { path: "/todos", name: "todos", component: () => import("@/pages/TodosPage.vue") },
     { path: "/settings", name: "settings", component: () => import("@/pages/SettingsPage.vue") },
     { path: "/:pathMatch(.*)*", redirect: "/workstreams" },
   ],

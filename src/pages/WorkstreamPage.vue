@@ -18,6 +18,26 @@ const workstream = computed(() =>
   current.value?.workstream.id === props.id ? current.value.workstream : null,
 );
 
+const completing = ref(false);
+
+async function toggleCompleted(): Promise<void> {
+  if (!workstream.value) return;
+  const markCompleted = workstream.value.completedAt === null;
+  completing.value = true;
+  try {
+    await store.setCompleted(props.id, markCompleted);
+    toast.add({
+      title: markCompleted ? "Workstream completed" : "Workstream reopened",
+      icon: markCompleted ? "i-lucide-circle-check" : "i-lucide-rotate-ccw",
+      color: "success",
+    });
+  } catch (err: unknown) {
+    toast.add({ title: (err as AppError).message, color: "error", icon: "i-lucide-circle-alert" });
+  } finally {
+    completing.value = false;
+  }
+}
+
 const renameOpen = ref(false);
 const deleteOpen = ref(false);
 const deleting = ref(false);
@@ -40,8 +60,35 @@ async function remove(): Promise<void> {
   <UDashboardPanel :id="`workstream-${id}`">
     <template #header>
       <UDashboardNavbar :title="workstream?.name ?? 'Workstream'" icon="i-lucide-layers">
+        <template #trailing>
+          <UBadge
+            v-if="workstream?.completedAt"
+            color="success"
+            variant="subtle"
+            icon="i-lucide-circle-check"
+            label="Completed"
+          />
+        </template>
         <template #right>
           <template v-if="workstream">
+            <UButton
+              v-if="workstream.completedAt"
+              color="neutral"
+              variant="outline"
+              icon="i-lucide-rotate-ccw"
+              label="Reopen"
+              :loading="completing"
+              @click="toggleCompleted"
+            />
+            <UButton
+              v-else
+              color="success"
+              variant="subtle"
+              icon="i-lucide-circle-check"
+              label="Mark as completed"
+              :loading="completing"
+              @click="toggleCompleted"
+            />
             <UButton
               color="neutral"
               variant="ghost"

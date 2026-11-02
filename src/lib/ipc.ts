@@ -14,6 +14,8 @@ import type {
   JiraUser,
   PullRequestList,
   Settings,
+  Todo,
+  TodoInput,
   Workstream,
   WorkstreamDetail,
   WorkstreamItemRef,
@@ -44,10 +46,16 @@ interface Commands {
   list_pull_requests: { args: Record<string, never>; result: PullRequestList };
   sync_pull_requests: { args: Record<string, never>; result: GitHubSyncSummary };
   open_pull_request: { args: { id: string }; result: null };
+  list_todos: { args: Record<string, never>; result: Todo[] };
+  create_todo: { args: { input: TodoInput; workstreamId: number | null }; result: Todo };
+  update_todo: { args: { id: number; input: TodoInput }; result: Todo };
+  set_todo_completed: { args: { id: number; completed: boolean }; result: Todo };
+  delete_todo: { args: { id: number }; result: null };
   list_workstreams: { args: Record<string, never>; result: Workstream[] };
   get_workstream: { args: { id: number }; result: WorkstreamDetail };
   create_workstream: { args: { name: string }; result: Workstream };
   rename_workstream: { args: { id: number; name: string }; result: Workstream };
+  set_workstream_completed: { args: { id: number; completed: boolean }; result: Workstream };
   delete_workstream: { args: { id: number }; result: null };
   set_item_workstream: {
     args: { item: WorkstreamItemRef; workstreamId: number | null };

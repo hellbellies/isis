@@ -1,55 +1,53 @@
-//! Workstreams bundle related items of any type (Jira issues today).
+//! Workstreams bundle related items of any type (Jira issues, pull requests, todos).
+//! A workstream is active until marked completed; completed ones keep their items.
 //!
 //! Links live in `workstream_items`, keyed by `(item_type, item_id)` so an item
 //! belongs to at most one workstream. Removing a link may make a cached item
 //! obsolete, so every unlink path asks the item's service to prune.
 
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{Connection, OptionalExtension, Row, params};
 
 use crate::error::{AppError, AppResult};
 use crate::models::workstreams::{
     Workstream, WorkstreamDetail, WorkstreamItemRef, WorkstreamItemType,
 };
-use crate::services::{jira_issues, pull_requests};
+use crate::services::{jira_issues, pull_requests, todos};
 
 const MAX_NAME_LENGTH: usize = 80;
 
-/// All workstreams with their item counts, sorted by name.
+/// Columns read by [`workstream_from_row`].
+const COLUMNS: &str = "w.id, w.name, w.created_at, w.completed_at,
+     (SELECT COUNT(*) FROM workstream_items i WHERE i.workstream_id = w.id)";
+
+/// All workstreams with their item counts: active ones first, each group sorted by name.
 pub fn list(conn: &Connection) -> AppResult<Vec<Workstream>> {
     Ok(conn
-        .prepare(
-            "SELECT w.id, w.name, w.created_at, COUNT(i.item_id)
-             FROM workstreams w LEFT JOIN workstream_items i ON i.workstream_id = w.id
-             GROUP BY w.id ORDER BY w.name COLLATE NOCASE",
-        )?
-        .query_map([], |row| {
-            Ok(Workstream {
-                id: row.get(0)?,
-                name: row.get(1)?,
-                created_at: row.get(2)?,
-                item_count: row.get(3)?,
-            })
-        })?
+        .prepare(&format!(
+            "SELECT {COLUMNS} FROM workstreams w
+             ORDER BY w.completed_at IS NOT NULL, w.name COLLATE NOCASE"
+        ))?
+        .query_map([], workstream_from_row)?
         .collect::<Result<Vec<_>, _>>()?)
 }
 
 pub fn get(conn: &Connection, id: i64) -> AppResult<Workstream> {
     conn.query_row(
-        "SELECT w.id, w.name, w.created_at,
-                (SELECT COUNT(*) FROM workstream_items i WHERE i.workstream_id = w.id)
-         FROM workstreams w WHERE w.id = ?1",
+        &format!("SELECT {COLUMNS} FROM workstreams w WHERE w.id = ?1"),
         [id],
-        |row| {
-            Ok(Workstream {
-                id: row.get(0)?,
-                name: row.get(1)?,
-                created_at: row.get(2)?,
-                item_count: row.get(3)?,
-            })
-        },
+        workstream_from_row,
     )
     .optional()?
     .ok_or_else(not_found)
+}
+
+fn workstream_from_row(row: &Row<'_>) -> rusqlite::Result<Workstream> {
+    Ok(Workstream {
+        id: row.get(0)?,
+        name: row.get(1)?,
+        created_at: row.get(2)?,
+        completed_at: row.get(3)?,
+        item_count: row.get(4)?,
+    })
 }
 
 /// A workstream with all its items.
@@ -58,6 +56,7 @@ pub fn detail(conn: &Connection, id: i64) -> AppResult<WorkstreamDetail> {
         workstream: get(conn, id)?,
         jira_issues: jira_issues::list_for_workstream(conn, id)?,
         pull_requests: pull_requests::list_for_workstream(conn, id)?,
+        todos: todos::list_for_workstream(conn, id)?,
     })
 }
 
@@ -75,6 +74,27 @@ pub fn rename(conn: &Connection, id: i64, name: &str) -> AppResult<Workstream> {
     if conn.execute(
         "UPDATE workstreams SET name = ?1 WHERE id = ?2",
         params![name, id],
+    )? == 0
+    {
+        return Err(not_found());
+    }
+    get(conn, id)
+}
+
+/// Marks a workstream completed (recording `now_ms`) or reopens it.
+/// Completing an already completed workstream keeps the original date.
+pub fn set_completed(
+    conn: &Connection,
+    id: i64,
+    completed: bool,
+    now_ms: i64,
+) -> AppResult<Workstream> {
+    let completed_at = completed.then_some(now_ms);
+    if conn.execute(
+        "UPDATE workstreams SET completed_at = CASE
+             WHEN ?2 IS NULL THEN NULL ELSE COALESCE(completed_at, ?2) END
+         WHERE id = ?1",
+        params![id, completed_at],
     )? == 0
     {
         return Err(not_found());
@@ -135,6 +155,7 @@ fn item_exists(conn: &Connection, item: &WorkstreamItemRef) -> AppResult<bool> {
     match item.item_type {
         WorkstreamItemType::JiraIssue => jira_issues::exists(conn, &item.item_id),
         WorkstreamItemType::PullRequest => pull_requests::exists(conn, &item.item_id),
+        WorkstreamItemType::Todo => todos::exists(conn, &item.item_id),
     }
 }
 
@@ -143,6 +164,8 @@ fn prune(conn: &Connection, item_type: WorkstreamItemType) -> AppResult<()> {
     match item_type {
         WorkstreamItemType::JiraIssue => jira_issues::prune_unlinked(conn).map(|_| ()),
         WorkstreamItemType::PullRequest => pull_requests::prune_unlinked(conn).map(|_| ()),
+        // Todos belong to the user, not to a workstream: unlinking keeps them.
+        WorkstreamItemType::Todo => Ok(()),
     }
 }
 
@@ -278,5 +301,31 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM workstream_items", [], |r| r.get(0))
             .unwrap();
         assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn completing_and_reopening() {
+        let conn = db::open_in_memory();
+        let alpha = create(&conn, "Alpha", NOW).unwrap();
+        create(&conn, "Beta", NOW).unwrap();
+        assert_eq!(alpha.completed_at, None);
+
+        let done = set_completed(&conn, alpha.id, true, NOW + 1).unwrap();
+        assert_eq!(done.completed_at, Some(NOW + 1));
+        // Completing again keeps the original completion date.
+        let again = set_completed(&conn, alpha.id, true, NOW + 2).unwrap();
+        assert_eq!(again.completed_at, Some(NOW + 1));
+
+        // Active workstreams are listed first.
+        let names: Vec<_> = list(&conn).unwrap().into_iter().map(|w| w.name).collect();
+        assert_eq!(names, ["Beta", "Alpha"]);
+
+        assert_eq!(
+            set_completed(&conn, alpha.id, false, NOW + 3)
+                .unwrap()
+                .completed_at,
+            None
+        );
+        assert!(set_completed(&conn, 999, true, NOW).is_err());
     }
 }

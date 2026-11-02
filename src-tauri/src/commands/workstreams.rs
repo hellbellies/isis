@@ -26,6 +26,16 @@ pub async fn rename_workstream(db: State<'_, Db>, id: i64, name: String) -> AppR
     workstreams::rename(&db.lock(), id, &name)
 }
 
+/// Marks a workstream completed, or reopens it when `completed` is false.
+#[tauri::command]
+pub async fn set_workstream_completed(
+    db: State<'_, Db>,
+    id: i64,
+    completed: bool,
+) -> AppResult<Workstream> {
+    workstreams::set_completed(&db.lock(), id, completed, now_ms())
+}
+
 #[tauri::command]
 pub async fn delete_workstream(db: State<'_, Db>, id: i64) -> AppResult<()> {
     workstreams::delete(&mut db.lock(), id)

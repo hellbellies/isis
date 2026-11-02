@@ -5,6 +5,7 @@ import type { NavigationMenuItem } from "@nuxt/ui";
 import { useSettingsStore, useThemeSync } from "@/features/settings";
 import { useJiraIssuesStore } from "@/features/jira";
 import { usePullRequestsStore } from "@/features/github";
+import { useTodosStore } from "@/features/todos";
 import { useWorkstreamsStore } from "@/features/workstreams";
 
 const settingsStore = useSettingsStore();
@@ -13,9 +14,12 @@ useThemeSync(computed(() => settingsStore.settings?.theme));
 const workstreamsStore = useWorkstreamsStore();
 const jiraStore = useJiraIssuesStore();
 const pullRequestsStore = usePullRequestsStore();
-const { workstreams } = storeToRefs(workstreamsStore);
+const todosStore = useTodosStore();
+// Completed workstreams stay reachable from the overview's "Completed" tab.
+const { active: activeWorkstreams } = storeToRefs(workstreamsStore);
 const { issues } = storeToRefs(jiraStore);
 const { pullRequests } = storeToRefs(pullRequestsStore);
+const { open: openTodos } = storeToRefs(todosStore);
 
 const mainItems = computed<NavigationMenuItem[]>(() => [
   { label: "Workstreams", icon: "i-lucide-layers", to: "/workstreams", exact: true },
@@ -31,14 +35,20 @@ const mainItems = computed<NavigationMenuItem[]>(() => [
     to: "/pull-requests",
     badge: pullRequests.value.length || undefined,
   },
+  {
+    label: "Todos",
+    icon: "i-lucide-list-todo",
+    to: "/todos",
+    badge: openTodos.value.length || undefined,
+  },
 ]);
 
 const workstreamItems = computed<NavigationMenuItem[]>(() =>
-  workstreams.value.length === 0
+  activeWorkstreams.value.length === 0
     ? []
     : [
         { type: "label", label: "Your workstreams" },
-        ...workstreams.value.map((workstream) => ({
+        ...activeWorkstreams.value.map((workstream) => ({
           label: workstream.name,
           icon: "i-lucide-folder",
           to: `/workstreams/${workstream.id}`,
@@ -57,6 +67,7 @@ onMounted(() => {
   void workstreamsStore.load();
   void jiraStore.load();
   void pullRequestsStore.load();
+  void todosStore.load();
 });
 </script>
 
