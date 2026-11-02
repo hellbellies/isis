@@ -4,6 +4,8 @@ import type {
   JiraIssueList,
   JiraSettings,
   JiraSettingsInput,
+  JiraStatusFilter,
+  JiraStatusRef,
   JiraSyncSummary,
   JiraUser,
   Settings,
@@ -25,6 +27,8 @@ interface Commands {
   list_jira_issues: { args: Record<string, never>; result: JiraIssueList };
   sync_jira_issues: { args: { full: boolean }; result: JiraSyncSummary };
   open_jira_issue: { args: { key: string }; result: null };
+  get_jira_status_filter: { args: Record<string, never>; result: JiraStatusFilter };
+  set_jira_status_filter: { args: { selected: JiraStatusRef[] }; result: JiraStatusFilter };
 }
 
 type CommandName = keyof Commands;

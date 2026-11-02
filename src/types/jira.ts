@@ -27,6 +27,9 @@ export interface JiraIssue {
   summary: string;
   /** ISO-8601 timestamp of the last change in Jira. */
   updated: string;
+  projectKey: string;
+  statusId: string;
+  statusName: string;
 }
 
 /** Mirrors `JiraIssueList` in `src-tauri/src/models/jira.rs`. */
@@ -44,4 +47,26 @@ export interface JiraSyncSummary {
   mode: JiraSyncMode;
   upserted: number;
   removed: number;
+}
+
+/** Mirrors `JiraProjectStatus` in `src-tauri/src/models/jira.rs`. */
+export interface JiraProjectStatus {
+  projectKey: string;
+  statusId: string;
+  name: string;
+  /** Jira status category key: `new`, `indeterminate` or `done`. */
+  category: string;
+}
+
+/** Mirrors `JiraStatusRef` in `src-tauri/src/models/jira.rs`. */
+export interface JiraStatusRef {
+  projectKey: string;
+  statusId: string;
+}
+
+/** Mirrors `JiraStatusFilter` in `src-tauri/src/models/jira.rs`. */
+export interface JiraStatusFilter {
+  options: JiraProjectStatus[];
+  /** Statuses to display. Empty means no filter. */
+  selected: JiraStatusRef[];
 }

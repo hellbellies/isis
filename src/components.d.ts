@@ -22,6 +22,7 @@ declare module 'vue' {
     UInput: typeof import('./../node_modules/.pnpm/@nuxt+ui@4.12.0_9e722c7f6033cd5b5343a96203ff76a8/node_modules/@nuxt/ui/dist/runtime/components/Input.vue')['default']
     ULink: typeof import('./../node_modules/.pnpm/@nuxt+ui@4.12.0_9e722c7f6033cd5b5343a96203ff76a8/node_modules/@nuxt/ui/dist/runtime/vue/overrides/none/Link.vue')['default']
     USelect: typeof import('./../node_modules/.pnpm/@nuxt+ui@4.12.0_9e722c7f6033cd5b5343a96203ff76a8/node_modules/@nuxt/ui/dist/runtime/components/Select.vue')['default']
+    USelectMenu: typeof import('./../node_modules/.pnpm/@nuxt+ui@4.12.0_9e722c7f6033cd5b5343a96203ff76a8/node_modules/@nuxt/ui/dist/runtime/components/SelectMenu.vue')['default']
     USkeleton: typeof import('./../node_modules/.pnpm/@nuxt+ui@4.12.0_9e722c7f6033cd5b5343a96203ff76a8/node_modules/@nuxt/ui/dist/runtime/components/Skeleton.vue')['default']
     USlideover: typeof import('./../node_modules/.pnpm/@nuxt+ui@4.12.0_9e722c7f6033cd5b5343a96203ff76a8/node_modules/@nuxt/ui/dist/runtime/components/Slideover.vue')['default']
     USwitch: typeof import('./../node_modules/.pnpm/@nuxt+ui@4.12.0_9e722c7f6033cd5b5343a96203ff76a8/node_modules/@nuxt/ui/dist/runtime/components/Switch.vue')['default']

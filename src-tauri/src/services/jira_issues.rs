@@ -6,12 +6,18 @@
 //! - removes those that were reassigned or unassigned.
 //!
 //! Issues deleted in Jira are only noticed by a full sync.
+//!
+//! Every sync also refreshes the statuses each project can have; the user's
+//! status filter refers to those (project, status) pairs.
 
 use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::db::Db;
 use crate::error::{AppError, AppResult};
-use crate::models::jira::{JiraIssue, JiraIssueList, JiraSyncMode, JiraSyncSummary};
+use crate::models::jira::{
+    JiraIssue, JiraIssueList, JiraProjectStatus, JiraStatusFilter, JiraStatusRef, JiraSyncMode,
+    JiraSyncSummary,
+};
 use crate::services::jira_client::JiraClient;
 
 /// Extra minutes added to the delta window to absorb clock skew and search-index lag.
@@ -34,8 +40,10 @@ struct SyncState {
 
 /// All stored issues, most recently updated first.
 pub fn list(conn: &Connection) -> AppResult<JiraIssueList> {
-    let mut statement = conn
-        .prepare("SELECT id, key, summary, updated FROM jira_issues ORDER BY updated DESC, key")?;
+    let mut statement = conn.prepare(
+        "SELECT id, key, summary, updated, project_key, status_id, status_name
+         FROM jira_issues ORDER BY updated DESC, key",
+    )?;
     let issues = statement
         .query_map([], |row| {
             Ok(JiraIssue {
@@ -43,6 +51,9 @@ pub fn list(conn: &Connection) -> AppResult<JiraIssueList> {
                 key: row.get(1)?,
                 summary: row.get(2)?,
                 updated: row.get(3)?,
+                project_key: row.get(4)?,
+                status_id: row.get(5)?,
+                status_name: row.get(6)?,
             })
         })?
         .collect::<Result<Vec<_>, _>>()?;
@@ -92,7 +103,73 @@ pub async fn sync(
         }
     };
 
-    apply(&mut db.lock(), mode, &upserts, &removed_ids, &scope, now_ms)
+    let mut statuses = Vec::new();
+    for key in project_keys {
+        statuses.extend(client.project_statuses(key).await?);
+    }
+
+    let result = SyncResult {
+        mode,
+        upserts,
+        removed_ids,
+        statuses,
+    };
+    apply(&mut db.lock(), &result, &scope, now_ms)
+}
+
+/// Statuses of the synced projects plus the user's selection.
+/// Selected statuses that no longer exist in a project are left out.
+pub fn status_filter(conn: &Connection) -> AppResult<JiraStatusFilter> {
+    let options = conn
+        .prepare(
+            "SELECT project_key, status_id, name, category FROM jira_project_statuses
+             ORDER BY project_key,
+                      CASE category WHEN 'new' THEN 0 WHEN 'indeterminate' THEN 1
+                                    WHEN 'done' THEN 2 ELSE 3 END,
+                      rowid",
+        )?
+        .query_map([], |row| {
+            Ok(JiraProjectStatus {
+                project_key: row.get(0)?,
+                status_id: row.get(1)?,
+                name: row.get(2)?,
+                category: row.get(3)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    let selected = conn
+        .prepare(
+            "SELECT project_key, status_id FROM jira_status_filter
+             JOIN jira_project_statuses USING (project_key, status_id)
+             ORDER BY project_key, status_id",
+        )?
+        .query_map([], |row| {
+            Ok(JiraStatusRef {
+                project_key: row.get(0)?,
+                status_id: row.get(1)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(JiraStatusFilter { options, selected })
+}
+
+/// Replaces the user's status selection. An empty selection disables the filter.
+pub fn set_status_filter(
+    conn: &mut Connection,
+    selected: &[JiraStatusRef],
+) -> AppResult<JiraStatusFilter> {
+    let tx = conn.transaction()?;
+    tx.execute("DELETE FROM jira_status_filter", [])?;
+    {
+        let mut insert = tx.prepare(
+            "INSERT OR IGNORE INTO jira_status_filter (project_key, status_id) VALUES (?1, ?2)",
+        )?;
+        for status in selected {
+            insert.execute(params![status.project_key, status.status_id])?;
+        }
+    }
+    tx.commit()?;
+    status_filter(conn)
 }
 
 /// Decides between a full and a delta sync.
@@ -128,34 +205,67 @@ fn jql_projects(project_keys: &[String]) -> String {
     format!("project in ({})", quoted.join(", "))
 }
 
+/// Everything fetched from Jira in one sync.
+struct SyncResult {
+    mode: JiraSyncMode,
+    upserts: Vec<JiraIssue>,
+    removed_ids: Vec<String>,
+    statuses: Vec<JiraProjectStatus>,
+}
+
 /// Writes a sync result in one transaction, so a failure leaves the previous data intact.
 fn apply(
     conn: &mut Connection,
-    mode: JiraSyncMode,
-    upserts: &[JiraIssue],
-    removed_ids: &[String],
+    result: &SyncResult,
     scope: &str,
     now_ms: i64,
 ) -> AppResult<JiraSyncSummary> {
     let tx = conn.transaction()?;
-    if mode == JiraSyncMode::Full {
+    if result.mode == JiraSyncMode::Full {
         tx.execute("DELETE FROM jira_issues", [])?;
     }
     {
         let mut upsert = tx.prepare(
-            "INSERT INTO jira_issues (id, key, summary, updated) VALUES (?1, ?2, ?3, ?4)
+            "INSERT INTO jira_issues (id, key, summary, updated, project_key, status_id, status_name)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
              ON CONFLICT(id) DO UPDATE SET
-                 key = excluded.key, summary = excluded.summary, updated = excluded.updated",
+                 key = excluded.key, summary = excluded.summary, updated = excluded.updated,
+                 project_key = excluded.project_key, status_id = excluded.status_id,
+                 status_name = excluded.status_name",
         )?;
-        for issue in upserts {
-            upsert.execute(params![issue.id, issue.key, issue.summary, issue.updated])?;
+        for issue in &result.upserts {
+            upsert.execute(params![
+                issue.id,
+                issue.key,
+                issue.summary,
+                issue.updated,
+                issue.project_key,
+                issue.status_id,
+                issue.status_name
+            ])?;
         }
     }
     let mut removed = 0;
     {
         let mut delete = tx.prepare("DELETE FROM jira_issues WHERE id = ?1")?;
-        for id in removed_ids {
+        for id in &result.removed_ids {
             removed += delete.execute(params![id])?;
+        }
+    }
+    // Statuses are always fetched in full, so replace them wholesale.
+    tx.execute("DELETE FROM jira_project_statuses", [])?;
+    {
+        let mut insert = tx.prepare(
+            "INSERT OR IGNORE INTO jira_project_statuses (project_key, status_id, name, category)
+             VALUES (?1, ?2, ?3, ?4)",
+        )?;
+        for status in &result.statuses {
+            insert.execute(params![
+                status.project_key,
+                status.status_id,
+                status.name,
+                status.category
+            ])?;
         }
     }
     tx.execute(
@@ -165,8 +275,8 @@ fn apply(
     )?;
     tx.commit()?;
     Ok(JiraSyncSummary {
-        mode,
-        upserted: upserts.len(),
+        mode: result.mode,
+        upserted: result.upserts.len(),
         removed,
     })
 }
@@ -202,8 +312,33 @@ mod tests {
 
     fn issue_json(id: &str, key: &str, summary: &str) -> String {
         format!(
-            r#"{{"id":"{id}","key":"{key}","fields":{{"summary":"{summary}","updated":"2026-11-02T10:00:00.000+0000"}}}}"#
+            r#"{{"id":"{id}","key":"{key}","fields":{{"summary":"{summary}","updated":"2026-11-02T10:00:00.000+0000","status":{{"id":"3","name":"In Progress"}}}}}}"#
         )
+    }
+
+    /// Every project gets the same workflow; listed out of category order on purpose.
+    async fn mock_statuses(server: &mut Server) {
+        server
+            .mock(
+                "GET",
+                Matcher::Regex(r"^/rest/api/2/project/[A-Z_0-9]+/statuses$".into()),
+            )
+            .with_body(
+                r#"[{"statuses":[
+                    {"id":"5","name":"Done","statusCategory":{"key":"done"}},
+                    {"id":"10","name":"To Do","statusCategory":{"key":"new"}},
+                    {"id":"3","name":"In Progress","statusCategory":{"key":"indeterminate"}}
+                ]}]"#,
+            )
+            .create_async()
+            .await;
+    }
+
+    fn status(project_key: &str, status_id: &str) -> JiraStatusRef {
+        JiraStatusRef {
+            project_key: project_key.into(),
+            status_id: status_id.into(),
+        }
     }
 
     fn page(issues: &[String]) -> String {
@@ -265,6 +400,7 @@ mod tests {
     #[tokio::test]
     async fn first_sync_is_full_then_delta_applies_changes() {
         let mut server = Server::new_async().await;
+        mock_statuses(&mut server).await;
         let db = Db::new(db::open_in_memory());
         let client = client(&server.url());
         let projects = keys(&["FOO"]);
@@ -286,6 +422,7 @@ mod tests {
 
         // 3 minutes later: FOO-1 was renamed, FOO-2 reassigned, FOO-3 newly assigned.
         server.reset();
+        mock_statuses(&mut server).await;
         let mine = mock_search(
             &mut server,
             r#"updated >= \"-8m\" AND assignee = currentUser()"#,
@@ -325,6 +462,7 @@ mod tests {
     #[tokio::test]
     async fn changed_projects_force_full_sync_replacing_old_issues() {
         let mut server = Server::new_async().await;
+        mock_statuses(&mut server).await;
         let db = Db::new(db::open_in_memory());
         let client = client(&server.url());
 
@@ -354,6 +492,7 @@ mod tests {
     #[tokio::test]
     async fn failed_sync_keeps_existing_data() {
         let mut server = Server::new_async().await;
+        mock_statuses(&mut server).await;
         let db = Db::new(db::open_in_memory());
         let client = client(&server.url());
         let projects = keys(&["FOO"]);
@@ -385,5 +524,65 @@ mod tests {
             sync(&db, &client, &[], false, NOW).await,
             Err(AppError::Validation(_))
         ));
+    }
+
+    #[tokio::test]
+    async fn sync_stores_issue_status_and_project_statuses() {
+        let mut server = Server::new_async().await;
+        mock_statuses(&mut server).await;
+        let db = Db::new(db::open_in_memory());
+        mock_search(&mut server, "FOO", page(&[issue_json("1", "FOO-1", "One")])).await;
+        sync(&db, &client(&server.url()), &keys(&["FOO"]), false, NOW)
+            .await
+            .unwrap();
+
+        let issue = &list(&db.lock()).unwrap().issues[0];
+        assert_eq!(
+            (
+                issue.project_key.as_str(),
+                issue.status_id.as_str(),
+                issue.status_name.as_str()
+            ),
+            ("FOO", "3", "In Progress")
+        );
+        let filter = status_filter(&db.lock()).unwrap();
+        let names: Vec<_> = filter.options.iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(names, ["To Do", "In Progress", "Done"]);
+        assert!(filter.selected.is_empty());
+    }
+
+    #[test]
+    fn status_filter_is_stored_and_ignores_unknown_statuses() {
+        let mut conn = db::open_in_memory();
+        conn.execute_batch(
+            "INSERT INTO jira_project_statuses VALUES
+                ('FOO', '3', 'In Progress', 'indeterminate'),
+                ('BAR', '3', 'In Progress', 'indeterminate'),
+                ('BAR', '5', 'Done', 'done');",
+        )
+        .unwrap();
+
+        let filter = set_status_filter(
+            &mut conn,
+            &[status("BAR", "5"), status("FOO", "3"), status("FOO", "99")],
+        )
+        .unwrap();
+        assert_eq!(filter.selected, [status("BAR", "5"), status("FOO", "3")]);
+        let project_order: Vec<_> = filter
+            .options
+            .iter()
+            .map(|s| s.project_key.as_str())
+            .collect();
+        assert_eq!(project_order, ["BAR", "BAR", "FOO"]);
+
+        // Replacing, not appending.
+        let filter = set_status_filter(&mut conn, &[status("BAR", "3")]).unwrap();
+        assert_eq!(filter.selected, [status("BAR", "3")]);
+        assert!(
+            set_status_filter(&mut conn, &[])
+                .unwrap()
+                .selected
+                .is_empty()
+        );
     }
 }

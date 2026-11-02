@@ -12,7 +12,10 @@ use crate::error::AppResult;
 
 pub const DB_FILE: &str = "isis.db";
 
-const MIGRATIONS_SLICE: &[M<'_>] = &[M::up(include_str!("../migrations/001_jira_issues.sql"))];
+const MIGRATIONS_SLICE: &[M<'_>] = &[
+    M::up(include_str!("../migrations/001_jira_issues.sql")),
+    M::up(include_str!("../migrations/002_jira_status_filter.sql")),
+];
 const MIGRATIONS: Migrations<'_> = Migrations::from_slice(MIGRATIONS_SLICE);
 
 /// The app's database connection, managed as `tauri::State`.

@@ -54,6 +54,9 @@ pub struct JiraIssue {
     pub summary: String,
     /// ISO-8601 timestamp of the last change, as reported by Jira.
     pub updated: String,
+    pub project_key: String,
+    pub status_id: String,
+    pub status_name: String,
 }
 
 /// Mirrored by `JiraIssueList` in `src/types/jira.ts`.
@@ -84,4 +87,33 @@ pub struct JiraSyncSummary {
     pub upserted: usize,
     /// Issues removed because they are no longer assigned to the user.
     pub removed: usize,
+}
+
+/// A status available in a project. Mirrored by `JiraProjectStatus` in `src/types/jira.ts`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JiraProjectStatus {
+    pub project_key: String,
+    pub status_id: String,
+    pub name: String,
+    /// Jira status category key: `new`, `indeterminate` or `done`.
+    pub category: String,
+}
+
+/// Identifies one status of one project. Mirrored by `JiraStatusRef` in `src/types/jira.ts`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JiraStatusRef {
+    pub project_key: String,
+    pub status_id: String,
+}
+
+/// Mirrored by `JiraStatusFilter` in `src/types/jira.ts`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JiraStatusFilter {
+    /// All statuses of the synced projects, grouped by project and ordered by category.
+    pub options: Vec<JiraProjectStatus>,
+    /// Statuses to display. Empty means no filter.
+    pub selected: Vec<JiraStatusRef>,
 }
