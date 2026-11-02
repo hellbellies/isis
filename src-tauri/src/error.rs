@@ -15,8 +15,17 @@ pub enum AppError {
     #[error("tauri error: {0}")]
     Tauri(#[from] tauri::Error),
 
+    #[error("could not open link: {0}")]
+    Opener(#[from] tauri_plugin_opener::Error),
+
     #[error("keychain error: {0}")]
     Keyring(#[from] keyring::Error),
+
+    #[error("database error: {0}")]
+    Db(#[from] rusqlite::Error),
+
+    #[error("database migration error: {0}")]
+    Migration(#[from] rusqlite_migration::Error),
 
     #[error("{0}")]
     Validation(String),
@@ -30,8 +39,9 @@ impl AppError {
         match self {
             AppError::Io(_) => "io",
             AppError::Serde(_) => "serde",
-            AppError::Tauri(_) => "tauri",
+            AppError::Tauri(_) | AppError::Opener(_) => "tauri",
             AppError::Keyring(_) => "keyring",
+            AppError::Db(_) | AppError::Migration(_) => "db",
             AppError::Validation(_) => "validation",
             AppError::Jira(_) => "jira",
         }

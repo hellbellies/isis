@@ -7,7 +7,7 @@ import type { JiraSettingsInput } from "@/types";
 const store = useJiraStore();
 const { settings, loading, saving, error, testing, testedUser, testError } = storeToRefs(store);
 
-const form = reactive({ baseUrl: "", email: "", apiToken: "" });
+const form = reactive({ baseUrl: "", email: "", projectKeys: "", apiToken: "" });
 
 // Sync the form from what Rust stored (e.g. the normalized URL).
 watch(
@@ -16,6 +16,7 @@ watch(
     if (!value) return;
     form.baseUrl = value.baseUrl;
     form.email = value.email;
+    form.projectKeys = value.projectKeys.join(", ");
   },
   { immediate: true },
 );
@@ -27,6 +28,7 @@ function toInput(): JiraSettingsInput {
   return {
     baseUrl: form.baseUrl,
     email: form.email,
+    projectKeys: form.projectKeys.split(","),
     // A blank field means "use the token already in the keychain".
     apiToken: form.apiToken.trim() ? form.apiToken : null,
   };
@@ -72,6 +74,19 @@ onMounted(() => {
           type="email"
           placeholder="you@example.com"
           icon="i-lucide-at-sign"
+          class="w-full"
+        />
+      </UFormField>
+
+      <UFormField
+        label="Projects"
+        name="projectKeys"
+        description="Comma-separated project keys, e.g. the FOO in FOO-123."
+      >
+        <UInput
+          v-model="form.projectKeys"
+          placeholder="FOO, BAR"
+          icon="i-lucide-folder-kanban"
           class="w-full"
         />
       </UFormField>
