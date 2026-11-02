@@ -1,15 +1,13 @@
 use std::fs;
 use std::path::Path;
-use std::time::Duration;
 
-use reqwest::StatusCode;
 use url::Url;
 
 use crate::error::{AppError, AppResult};
 use crate::models::jira::{JiraConfig, JiraSettings, JiraSettingsInput, JiraUser};
+use crate::services::jira_client::{JiraClient, JiraCredentials};
 
 pub const JIRA_CONFIG_FILE: &str = "jira.json";
-const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// Storage for a single secret. Abstracted so tests don't touch the real keychain.
 pub trait SecretStore {
@@ -55,7 +53,7 @@ impl SecretStore for KeyringStore {
     }
 }
 
-fn load_config(dir: &Path) -> AppResult<JiraConfig> {
+pub fn load_config(dir: &Path) -> AppResult<JiraConfig> {
     let path = dir.join(JIRA_CONFIG_FILE);
     if !path.exists() {
         return Ok(JiraConfig::default());
@@ -94,6 +92,7 @@ pub fn get(dir: &Path, secrets: &impl SecretStore) -> AppResult<JiraSettings> {
     Ok(JiraSettings {
         base_url: config.base_url,
         email: config.email,
+        project_keys: config.project_keys,
         has_token: secrets.get()?.is_some(),
     })
 }
@@ -107,6 +106,7 @@ pub fn save(
     let config = JiraConfig {
         base_url: normalize_base_url(&input.base_url)?,
         email: input.email.trim().to_owned(),
+        project_keys: normalize_project_keys(&input.project_keys)?,
     };
     let token = match input.api_token.as_deref().map(str::trim) {
         Some("") => return Err(AppError::Validation("API token cannot be empty".into())),
@@ -133,68 +133,80 @@ pub async fn test_connection(
     input: JiraSettingsInput,
 ) -> AppResult<JiraUser> {
     let base_url = normalize_base_url(&input.base_url)?;
+    let token = match input.api_token.as_deref().map(str::trim) {
+        Some(token) if !token.is_empty() => Some(token.to_owned()),
+        _ => secrets.get()?,
+    };
+    let credentials = require_credentials(base_url, input.email.trim().to_owned(), token)?;
+    JiraClient::new(credentials)?.myself().await
+}
+
+/// Loads the saved credentials, failing with a hint if anything is missing.
+pub fn credentials(dir: &Path, secrets: &impl SecretStore) -> AppResult<JiraCredentials> {
+    let config = load_config(dir)?;
+    require_credentials(config.base_url, config.email, secrets.get()?)
+}
+
+fn require_credentials(
+    base_url: String,
+    email: String,
+    token: Option<String>,
+) -> AppResult<JiraCredentials> {
     if base_url.is_empty() {
         return Err(AppError::Validation("Enter the Jira site URL".into()));
     }
-    let email = input.email.trim();
     if email.is_empty() {
         return Err(AppError::Validation(
             "Enter the email of your Atlassian account".into(),
         ));
     }
-    let token = match input.api_token.as_deref().map(str::trim) {
-        Some(token) if !token.is_empty() => token.to_owned(),
-        _ => secrets
-            .get()?
-            .ok_or_else(|| AppError::Validation("Enter an API token".into()))?,
-    };
-    check_connection(&base_url, email, &token).await
+    let token = token.ok_or_else(|| AppError::Validation("Enter an API token".into()))?;
+    Ok(JiraCredentials {
+        base_url,
+        email,
+        token,
+    })
 }
 
-/// Calls `GET /rest/api/2/myself` (available on Cloud and Data Center)
-/// and maps failures to messages a user can act on.
-pub async fn check_connection(base_url: &str, email: &str, token: &str) -> AppResult<JiraUser> {
-    let unreachable = |err: reqwest::Error| {
-        AppError::Jira(format!("Could not reach {base_url}: {}", root_cause(&err)))
-    };
-    let response = reqwest::Client::builder()
-        .timeout(REQUEST_TIMEOUT)
-        .build()
-        .map_err(unreachable)?
-        .get(format!("{base_url}/rest/api/2/myself"))
-        .basic_auth(email, Some(token))
-        .header(reqwest::header::ACCEPT, "application/json")
-        .send()
-        .await
-        .map_err(unreachable)?;
-
-    match response.status() {
-        status if status.is_success() => response.json::<JiraUser>().await.map_err(|_| {
-            AppError::Jira(format!("{base_url} did not respond like a Jira site"))
-        }),
-        StatusCode::UNAUTHORIZED => Err(AppError::Jira(
-            "Jira rejected the email or API token".into(),
-        )),
-        StatusCode::FORBIDDEN => Err(AppError::Jira(
-            "Access denied. Log in to Jira in the browser once (it may require a CAPTCHA), then retry".into(),
-        )),
-        StatusCode::NOT_FOUND => Err(AppError::Jira(format!(
-            "No Jira REST API found at {base_url}"
-        ))),
-        status => Err(AppError::Jira(format!("Jira responded with {status}"))),
+/// Browser URL of an issue on the configured site. Validates `key` so only
+/// `{base_url}/browse/PROJ-123` style URLs can ever be opened.
+pub fn issue_url(dir: &Path, key: &str) -> AppResult<String> {
+    let invalid = || AppError::Validation(format!("'{key}' is not a Jira issue key"));
+    let (project, number) = key.split_once('-').ok_or_else(invalid)?;
+    if !is_project_key(project) || number.is_empty() || !number.bytes().all(|b| b.is_ascii_digit())
+    {
+        return Err(invalid());
     }
+    let base_url = load_config(dir)?.base_url;
+    if base_url.is_empty() {
+        return Err(AppError::Validation("Enter the Jira site URL".into()));
+    }
+    Ok(format!("{base_url}/browse/{key}"))
 }
 
-/// The innermost error is usually the useful one (DNS failure, refused connection, timeout…).
-fn root_cause(err: &reqwest::Error) -> String {
-    if err.is_timeout() {
-        return "the request timed out".into();
+/// Uppercases, trims and de-duplicates project keys, rejecting malformed ones.
+/// Validation also keeps the keys safe to embed in JQL.
+fn normalize_project_keys(keys: &[String]) -> AppResult<Vec<String>> {
+    let mut normalized: Vec<String> = Vec::new();
+    for key in keys.iter().map(|k| k.trim().to_ascii_uppercase()) {
+        if key.is_empty() || normalized.contains(&key) {
+            continue;
+        }
+        if !is_project_key(&key) {
+            return Err(AppError::Validation(format!(
+                "'{key}' is not a valid Jira project key"
+            )));
+        }
+        normalized.push(key);
     }
-    let mut cause: &dyn std::error::Error = err;
-    while let Some(source) = cause.source() {
-        cause = source;
-    }
-    cause.to_string()
+    Ok(normalized)
+}
+
+/// Jira project keys: an uppercase letter followed by uppercase letters, digits or `_`.
+pub fn is_project_key(key: &str) -> bool {
+    let mut chars = key.chars();
+    chars.next().is_some_and(|c| c.is_ascii_uppercase())
+        && chars.all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
 }
 
 #[cfg(test)]
@@ -224,6 +236,7 @@ mod tests {
         JiraSettingsInput {
             base_url: base_url.into(),
             email: " me@example.com ".into(),
+            project_keys: Vec::new(),
             api_token: api_token.map(Into::into),
         }
     }
@@ -314,63 +327,12 @@ mod tests {
         assert_eq!(settings.base_url, "https://a.atlassian.net");
     }
 
-    const MYSELF: &str = "/rest/api/2/myself";
-    const AUTH: &str = "Basic bWVAZXhhbXBsZS5jb206c2VjcmV0"; // me@example.com:secret
-
-    #[tokio::test]
-    async fn check_connection_returns_user_on_success() {
-        let mut server = mockito::Server::new_async().await;
-        let mock = server
-            .mock("GET", MYSELF)
-            .match_header("authorization", AUTH)
-            .with_header("content-type", "application/json")
-            .with_body(
-                r#"{"displayName":"Ada Lovelace","emailAddress":"me@example.com","accountId":"1"}"#,
-            )
-            .create_async()
-            .await;
-
-        let user = check_connection(&server.url(), "me@example.com", "secret")
-            .await
-            .unwrap();
-        assert_eq!(user.display_name, "Ada Lovelace");
-        assert_eq!(user.email_address.as_deref(), Some("me@example.com"));
-        mock.assert_async().await;
-    }
-
-    #[tokio::test]
-    async fn check_connection_maps_failures_to_messages() {
-        let mut server = mockito::Server::new_async().await;
-        for (status, body, expected) in [
-            (401, "", "rejected the email or API token"),
-            (404, "", "No Jira REST API"),
-            (
-                200,
-                "<html>hello</html>",
-                "did not respond like a Jira site",
-            ),
-            (500, "", "responded with 500"),
-        ] {
-            server.reset();
-            server
-                .mock("GET", MYSELF)
-                .with_status(status)
-                .with_body(body)
-                .create_async()
-                .await;
-            match check_connection(&server.url(), "me@example.com", "secret").await {
-                Err(AppError::Jira(message)) => assert!(message.contains(expected), "{message}"),
-                other => panic!("expected Jira error for {status}, got {other:?}"),
-            }
-        }
-    }
-
     #[tokio::test]
     async fn test_connection_falls_back_to_stored_token() {
         let mut server = mockito::Server::new_async().await;
         let mock = server
-            .mock("GET", MYSELF)
-            .match_header("authorization", AUTH)
+            .mock("GET", "/rest/api/2/myself")
+            .match_header("authorization", "Basic bWVAZXhhbXBsZS5jb206c2VjcmV0")
             .with_body(r#"{"displayName":"Ada"}"#)
             .create_async()
             .await;
@@ -400,6 +362,56 @@ mod tests {
                 test_connection(&secrets, bad).await,
                 Err(AppError::Validation(_))
             ));
+        }
+    }
+
+    #[test]
+    fn save_normalizes_project_keys() {
+        let dir = tempfile::tempdir().unwrap();
+        let secrets = MemoryStore::default();
+        let settings = save(
+            dir.path(),
+            &secrets,
+            JiraSettingsInput {
+                project_keys: vec![" foo".into(), "".into(), "BAR_2".into(), "FOO".into()],
+                ..input("https://a.atlassian.net", None)
+            },
+        )
+        .unwrap();
+        assert_eq!(settings.project_keys, ["FOO", "BAR_2"]);
+    }
+
+    #[test]
+    fn save_rejects_malformed_project_keys() {
+        let dir = tempfile::tempdir().unwrap();
+        for bad in ["2FOO", "FOO-1", "FO O", "FOO\")"] {
+            let result = save(
+                dir.path(),
+                &MemoryStore::default(),
+                JiraSettingsInput {
+                    project_keys: vec![bad.into()],
+                    ..input("https://a.atlassian.net", None)
+                },
+            );
+            assert!(matches!(result, Err(AppError::Validation(_))), "{bad}");
+        }
+    }
+
+    #[test]
+    fn issue_url_validates_key() {
+        let dir = tempfile::tempdir().unwrap();
+        save(
+            dir.path(),
+            &MemoryStore::default(),
+            input("https://a.atlassian.net/", None),
+        )
+        .unwrap();
+        assert_eq!(
+            issue_url(dir.path(), "FOO-123").unwrap(),
+            "https://a.atlassian.net/browse/FOO-123"
+        );
+        for bad in ["FOO", "FOO-", "FOO-12a", "foo-1", "../x-1", "FOO-1?x=y"] {
+            assert!(issue_url(dir.path(), bad).is_err(), "{bad}");
         }
     }
 }

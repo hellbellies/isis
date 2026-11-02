@@ -35,10 +35,14 @@ src-tauri/src/
   commands/<feature>.rs   thin #[tauri::command] handlers
   services/<feature>.rs   domain logic, IPC-agnostic, unit-tested
   models/<feature>.rs     serde structs shared over IPC
+  db.rs                   SQLite connection (`Db` state) + migration list
   error.rs                AppError / AppResult
+src-tauri/migrations/     NNN_<name>.sql, applied in order by rusqlite_migration
   lib.rs                  builder + generate_handler! registration
 ```
 - Command handlers stay thin: resolve inputs (paths, state), call a service, return its result.
+- Persistence: small whole-document settings → JSON in `app_config_dir`; queryable app data → SQLite (`rusqlite`, `app_data_dir/isis.db`); secrets → OS keychain (`keyring`), never sent back to the frontend.
+- Database: services take `&Connection` (tests use `db::open_in_memory()`). Never hold `Db::lock()` across an `.await`. Schema changes are new migration files — never edit an applied one.
 - Import from other features via their `index.ts`, not deep paths.
 
 ### 4. UI

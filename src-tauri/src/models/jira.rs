@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 pub struct JiraConfig {
     pub base_url: String,
     pub email: String,
+    pub project_keys: Vec<String>,
 }
 
 /// What the frontend sees. Mirrored by `JiraSettings` in `src/types/jira.ts`.
@@ -16,6 +17,7 @@ pub struct JiraConfig {
 pub struct JiraSettings {
     pub base_url: String,
     pub email: String,
+    pub project_keys: Vec<String>,
     pub has_token: bool,
 }
 
@@ -26,6 +28,8 @@ pub struct JiraSettings {
 pub struct JiraSettingsInput {
     pub base_url: String,
     pub email: String,
+    #[serde(default)]
+    pub project_keys: Vec<String>,
     pub api_token: Option<String>,
 }
 
@@ -37,4 +41,47 @@ pub struct JiraUser {
     pub display_name: String,
     #[serde(default)]
     pub email_address: Option<String>,
+}
+
+/// A Jira issue assigned to the current user, as stored locally.
+/// Mirrored by `JiraIssue` in `src/types/jira.ts`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JiraIssue {
+    /// Jira's immutable issue id; `key` changes when an issue moves project.
+    pub id: String,
+    pub key: String,
+    pub summary: String,
+    /// ISO-8601 timestamp of the last change, as reported by Jira.
+    pub updated: String,
+}
+
+/// Mirrored by `JiraIssueList` in `src/types/jira.ts`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JiraIssueList {
+    pub issues: Vec<JiraIssue>,
+    /// Unix epoch milliseconds of the last successful sync.
+    pub last_synced_at: Option<i64>,
+}
+
+/// Mirrored by `JiraSyncMode` in `src/types/jira.ts`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum JiraSyncMode {
+    /// Replaced all local issues.
+    Full,
+    /// Applied only issues changed since the last sync.
+    Delta,
+}
+
+/// Mirrored by `JiraSyncSummary` in `src/types/jira.ts`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JiraSyncSummary {
+    pub mode: JiraSyncMode,
+    /// Issues inserted or updated.
+    pub upserted: usize,
+    /// Issues removed because they are no longer assigned to the user.
+    pub removed: usize,
 }
