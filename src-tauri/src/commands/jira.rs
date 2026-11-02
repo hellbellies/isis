@@ -13,7 +13,7 @@ use crate::services::jira_client::JiraClient;
 use crate::services::jira_issues;
 use crate::services::secrets::KeyringStore;
 
-const TOKEN_STORE: KeyringStore = KeyringStore::new("ch.imfeld.isis", "jira-api-token");
+const TOKEN_STORE: KeyringStore = KeyringStore::new("ch.imfeld.osiris", "jira-api-token");
 
 // Async so keychain, network and database work runs off the main thread.
 

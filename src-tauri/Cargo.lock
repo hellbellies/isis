@@ -2014,26 +2014,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "isis"
-version = "0.1.0"
-dependencies = [
- "keyring",
- "mockito",
- "reqwest",
- "rusqlite",
- "rusqlite_migration",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-opener",
- "tempfile",
- "thiserror 2.0.21",
- "tokio",
- "url",
-]
-
-[[package]]
 name = "itoa"
 version = "1.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2858,6 +2838,26 @@ checksum = "9aa2b01e1d916879f73a53d01d1d6cee68adbb31d6d9177a8cfce093cced1d50"
 dependencies = [
  "futures-core",
  "pin-project-lite",
+]
+
+[[package]]
+name = "osiris"
+version = "0.1.0"
+dependencies = [
+ "keyring",
+ "mockito",
+ "reqwest",
+ "rusqlite",
+ "rusqlite_migration",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-opener",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "url",
 ]
 
 [[package]]

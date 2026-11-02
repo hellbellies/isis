@@ -1,4 +1,4 @@
-//! Todos: created in isis itself, optionally linked to a workstream.
+//! Todos: created in osiris itself, optionally linked to a workstream.
 //!
 //! Unlike Jira issues and pull requests they are never pruned: removing a todo
 //! from its workstream keeps it. Deleting a todo also removes its link.

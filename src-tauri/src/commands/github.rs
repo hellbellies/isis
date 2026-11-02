@@ -11,7 +11,7 @@ use crate::services::github_client::GitHubClient;
 use crate::services::secrets::KeyringStore;
 use crate::services::{github, pull_requests};
 
-const TOKEN_STORE: KeyringStore = KeyringStore::new("ch.imfeld.isis", "github-token");
+const TOKEN_STORE: KeyringStore = KeyringStore::new("ch.imfeld.osiris", "github-token");
 
 #[tauri::command]
 pub async fn get_github_settings(app: AppHandle) -> AppResult<GitHubSettings> {

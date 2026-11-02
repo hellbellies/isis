@@ -77,7 +77,7 @@ onMounted(() => {
       <UDashboardSidebar collapsible resizable :ui="{ footer: 'border-t border-default' }">
         <template #header="{ collapsed }">
           <span class="px-1 text-lg font-semibold tracking-tight text-highlighted">
-            {{ collapsed ? "i" : "isis" }}
+            {{ collapsed ? "o" : "osiris" }}
           </span>
         </template>
 

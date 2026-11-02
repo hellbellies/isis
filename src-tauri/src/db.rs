@@ -10,7 +10,7 @@ use rusqlite_migration::{M, Migrations};
 
 use crate::error::AppResult;
 
-pub const DB_FILE: &str = "isis.db";
+pub const DB_FILE: &str = "osiris.db";
 
 const MIGRATIONS_SLICE: &[M<'_>] = &[
     M::up(include_str!("../migrations/001_jira_issues.sql")),

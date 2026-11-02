@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "isis",
+  "productName": "osiris",
   "version": "0.1.0",
-  "identifier": "ch.imfeld.isis",
+  "identifier": "ch.imfeld.osiris",
   "build": {
     "beforeDevCommand": "pnpm dev",
     "devUrl": "http://localhost:1420",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "isis",
+        "title": "osiris",
         "width": 1000,
         "height": 700,
         "minWidth": 640,
