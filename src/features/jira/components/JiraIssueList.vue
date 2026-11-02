@@ -3,12 +3,38 @@ import { computed, onMounted } from "vue";
 import { storeToRefs } from "pinia";
 import { useToast } from "@nuxt/ui/composables";
 import { useTimeAgo } from "@vueuse/core";
-import { useJiraIssuesStore } from "../stores/jiraIssuesStore";
-import type { JiraSyncSummary } from "@/types";
+import { statusRefId, useJiraIssuesStore } from "../stores/jiraIssuesStore";
+import JiraStatusFilter from "./JiraStatusFilter.vue";
+import type { JiraIssue, JiraSyncSummary } from "@/types";
 
 const store = useJiraIssuesStore();
-const { issues, lastSyncedAt, loaded, syncing, error } = storeToRefs(store);
+const {
+  issues,
+  visibleIssues,
+  statusOptions,
+  selectedStatuses,
+  lastSyncedAt,
+  loaded,
+  syncing,
+  error,
+} = storeToRefs(store);
 const toast = useToast();
+
+/** Badge color per Jira status category (To Do / In Progress / Done). */
+const categoryColors = {
+  new: "neutral",
+  indeterminate: "info",
+  done: "success",
+} as const;
+
+const categoryByStatus = computed(
+  () => new Map(statusOptions.value.map((status) => [statusRefId(status), status.category])),
+);
+
+function statusColor(issue: JiraIssue): "neutral" | "info" | "success" {
+  const category = categoryByStatus.value.get(statusRefId(issue));
+  return categoryColors[category as keyof typeof categoryColors] ?? "neutral";
+}
 
 const lastSyncedAgo = useTimeAgo(computed(() => lastSyncedAt.value ?? 0));
 
@@ -37,9 +63,13 @@ onMounted(() => {
           <p class="text-sm text-muted">
             <template v-if="lastSyncedAt">Last fetched {{ lastSyncedAgo }}</template>
             <template v-else>Not fetched yet</template>
+            <template v-if="selectedStatuses.length">
+              · showing {{ visibleIssues.length }} of {{ issues.length }}
+            </template>
           </p>
         </div>
         <div class="flex gap-2">
+          <JiraStatusFilter />
           <UTooltip text="Re-fetch everything, e.g. to drop issues deleted in Jira">
             <UButton
               color="neutral"
@@ -69,20 +99,37 @@ onMounted(() => {
       :title="error.message"
     />
 
-    <ul v-if="issues.length" class="divide-y divide-default">
-      <li v-for="issue in issues" :key="issue.id" class="flex items-center gap-3 px-4 py-2.5">
+    <ul v-if="visibleIssues.length" class="divide-y divide-default">
+      <li v-for="issue in visibleIssues" :key="issue.id" class="flex items-center gap-3 px-4 py-2.5">
         <UBadge color="neutral" variant="subtle" class="shrink-0 font-mono" :label="issue.key" />
         <ULink
           as="button"
-          class="truncate text-left"
+          class="min-w-0 flex-1 truncate text-left"
           :title="`Open ${issue.key} in Jira`"
           @click="store.open(issue.key)"
         >
           {{ issue.summary }}
         </ULink>
+        <UBadge
+          v-if="issue.statusName"
+          :color="statusColor(issue)"
+          variant="subtle"
+          class="shrink-0"
+          :label="issue.statusName"
+        />
       </li>
     </ul>
 
+    <UEmpty
+      v-else-if="issues.length"
+      class="py-10"
+      icon="i-lucide-list-filter"
+      title="No matching issues"
+      description="None of your issues has one of the selected statuses."
+      :actions="[
+        { label: 'Show all', color: 'neutral', variant: 'subtle', onClick: () => store.setStatusFilter([]) },
+      ]"
+    />
     <UEmpty
       v-else-if="loaded && !syncing"
       class="py-10"

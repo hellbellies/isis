@@ -6,7 +6,7 @@ use reqwest::{RequestBuilder, Response, StatusCode};
 use serde::{Deserialize, Serialize};
 
 use crate::error::{AppError, AppResult};
-use crate::models::jira::{JiraIssue, JiraUser};
+use crate::models::jira::{JiraIssue, JiraProjectStatus, JiraUser};
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
 const PAGE_SIZE: u32 = 100;
@@ -51,14 +51,14 @@ impl JiraClient {
     }
 
     /// Runs a JQL search via `POST /rest/api/3/search/jql`, following all pages.
-    /// Requests the `summary` and `updated` fields.
+    /// Requests the fields needed for [`JiraIssue`].
     pub async fn search(&self, jql: &str) -> AppResult<Vec<JiraIssue>> {
         let mut issues = Vec::new();
         let mut next_page_token: Option<String> = None;
         for _ in 0..MAX_PAGES {
             let body = SearchRequest {
                 jql,
-                fields: &["summary", "updated"],
+                fields: &["summary", "updated", "status", "project"],
                 max_results: PAGE_SIZE,
                 next_page_token: next_page_token.as_deref(),
             };
@@ -76,6 +76,26 @@ impl JiraClient {
         Err(AppError::Jira(format!(
             "Search returned more than {MAX_PAGES} pages; aborting"
         )))
+    }
+
+    /// `GET /rest/api/2/project/{key}/statuses` — every status used by the project's
+    /// workflows, de-duplicated across issue types, in Jira's order.
+    pub async fn project_statuses(&self, project_key: &str) -> AppResult<Vec<JiraProjectStatus>> {
+        let url = self.url(&format!("/rest/api/2/project/{project_key}/statuses"));
+        let issue_types: Vec<IssueTypeStatuses> =
+            self.parse(self.send(self.http.get(url)).await?).await?;
+        let mut statuses: Vec<JiraProjectStatus> = Vec::new();
+        for status in issue_types.into_iter().flat_map(|t| t.statuses) {
+            if statuses.iter().all(|s| s.status_id != status.id) {
+                statuses.push(JiraProjectStatus {
+                    project_key: project_key.to_owned(),
+                    status_id: status.id,
+                    name: status.name,
+                    category: status.status_category.map(|c| c.key).unwrap_or_default(),
+                });
+            }
+        }
+        Ok(statuses)
     }
 
     fn url(&self, path: &str) -> String {
@@ -170,15 +190,51 @@ struct SearchFields {
     summary: String,
     #[serde(default)]
     updated: String,
+    status: Option<Status>,
+    project: Option<Project>,
+}
+
+#[derive(Deserialize)]
+struct Project {
+    key: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Status {
+    id: String,
+    name: String,
+    status_category: Option<StatusCategory>,
+}
+
+#[derive(Deserialize)]
+struct StatusCategory {
+    key: String,
+}
+
+#[derive(Deserialize)]
+struct IssueTypeStatuses {
+    #[serde(default)]
+    statuses: Vec<Status>,
 }
 
 impl From<SearchIssue> for JiraIssue {
     fn from(issue: SearchIssue) -> Self {
+        let fields = issue.fields;
+        // Fall back to the key prefix in case the project field is missing.
+        let project_key = fields
+            .project
+            .map(|p| p.key)
+            .unwrap_or_else(|| issue.key.split_once('-').map_or("", |(p, _)| p).to_owned());
+        let (status_id, status_name) = fields.status.map(|s| (s.id, s.name)).unzip();
         Self {
             id: issue.id,
             key: issue.key,
-            summary: issue.fields.summary,
-            updated: issue.fields.updated,
+            summary: fields.summary,
+            updated: fields.updated,
+            project_key,
+            status_id: status_id.unwrap_or_default(),
+            status_name: status_name.unwrap_or_default(),
         }
     }
 }
@@ -268,7 +324,7 @@ pub(crate) mod tests {
             .match_header("authorization", AUTH)
             .match_body(Matcher::Regex(r#""maxResults":100\}$"#.into()))
             .with_body(
-                r#"{"issues":[{"id":"1","key":"FOO-1","fields":{"summary":"One","updated":"2026-11-01T10:00:00.000+0000"}}],"nextPageToken":"p2","isLast":false}"#,
+                r#"{"issues":[{"id":"1","key":"FOO-1","fields":{"summary":"One","updated":"2026-11-01T10:00:00.000+0000","status":{"id":"3","name":"In Progress"},"project":{"key":"FOO"}}}],"nextPageToken":"p2","isLast":false}"#,
             )
             .create_async()
             .await;
@@ -285,7 +341,39 @@ pub(crate) mod tests {
         let keys: Vec<_> = issues.iter().map(|i| i.key.as_str()).collect();
         assert_eq!(keys, ["FOO-1", "FOO-2"]);
         assert_eq!(issues[1].summary, "Two");
+        assert_eq!(issues[0].status_name, "In Progress");
+        assert_eq!(issues[0].project_key, "FOO");
+        // Missing fields fall back to defaults / the key prefix.
+        assert_eq!(issues[1].project_key, "FOO");
+        assert_eq!(issues[1].status_id, "");
         first.assert_async().await;
         second.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn project_statuses_deduplicates_across_issue_types() {
+        let mut server = mockito::Server::new_async().await;
+        server
+            .mock("GET", "/rest/api/2/project/FOO/statuses")
+            .with_body(
+                r#"[
+                    {"id":"1","name":"Task","statuses":[
+                        {"id":"10","name":"To Do","statusCategory":{"key":"new"}},
+                        {"id":"3","name":"In Progress","statusCategory":{"key":"indeterminate"}}
+                    ]},
+                    {"id":"2","name":"Bug","statuses":[
+                        {"id":"3","name":"In Progress","statusCategory":{"key":"indeterminate"}},
+                        {"id":"5","name":"Done","statusCategory":{"key":"done"}}
+                    ]}
+                ]"#,
+            )
+            .create_async()
+            .await;
+
+        let statuses = client(&server.url()).project_statuses("FOO").await.unwrap();
+        let names: Vec<_> = statuses.iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(names, ["To Do", "In Progress", "Done"]);
+        assert_eq!(statuses[2].category, "done");
+        assert!(statuses.iter().all(|s| s.project_key == "FOO"));
     }
 }
