@@ -235,6 +235,9 @@ impl From<SearchIssue> for JiraIssue {
             project_key,
             status_id: status_id.unwrap_or_default(),
             status_name: status_name.unwrap_or_default(),
+            // Local state, decided by the sync and the workstream links.
+            assigned_to_me: false,
+            workstream_id: None,
         }
     }
 }

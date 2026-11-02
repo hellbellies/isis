@@ -1,40 +1,87 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
-import { SettingsPanel, useSettingsStore, useThemeSync } from "@/features/settings";
-import { JiraIssueList, JiraSettingsPanel } from "@/features/jira";
+import { computed, onMounted } from "vue";
+import { storeToRefs } from "pinia";
+import type { NavigationMenuItem } from "@nuxt/ui";
+import { useSettingsStore, useThemeSync } from "@/features/settings";
+import { useJiraIssuesStore } from "@/features/jira";
+import { useWorkstreamsStore } from "@/features/workstreams";
 
 const settingsStore = useSettingsStore();
 useThemeSync(computed(() => settingsStore.settings?.theme));
 
-const settingsOpen = ref(false);
+const workstreamsStore = useWorkstreamsStore();
+const jiraStore = useJiraIssuesStore();
+const { workstreams } = storeToRefs(workstreamsStore);
+const { issues } = storeToRefs(jiraStore);
 
-// The settings panels only mount when the slideover opens, but the theme is needed right away.
+const mainItems = computed<NavigationMenuItem[]>(() => [
+  { label: "Workstreams", icon: "i-lucide-layers", to: "/workstreams", exact: true },
+  {
+    label: "Jira issues",
+    icon: "i-lucide-ticket",
+    to: "/jira",
+    badge: issues.value.length || undefined,
+  },
+]);
+
+const workstreamItems = computed<NavigationMenuItem[]>(() =>
+  workstreams.value.length === 0
+    ? []
+    : [
+        { type: "label", label: "Your workstreams" },
+        ...workstreams.value.map((workstream) => ({
+          label: workstream.name,
+          icon: "i-lucide-folder",
+          to: `/workstreams/${workstream.id}`,
+          badge: workstream.itemCount || undefined,
+        })),
+      ],
+);
+
+const footerItems: NavigationMenuItem[] = [
+  { label: "Settings", icon: "i-lucide-settings", to: "/settings" },
+];
+
+// Everything here is local data; the theme in particular is needed before any page renders.
 onMounted(() => {
   if (!settingsStore.settings) void settingsStore.load();
+  void workstreamsStore.load();
+  void jiraStore.load();
 });
 </script>
 
 <template>
   <UApp>
-    <main class="mx-auto flex min-h-screen max-w-3xl flex-col gap-6 p-8">
-      <header class="flex items-center justify-between">
-        <h1 class="text-2xl font-semibold tracking-tight text-highlighted">isis</h1>
-        <USlideover v-model:open="settingsOpen" title="Settings">
-          <UButton
-            color="neutral"
-            variant="ghost"
-            icon="i-lucide-settings"
-            aria-label="Settings"
+    <UDashboardGroup>
+      <UDashboardSidebar collapsible resizable :ui="{ footer: 'border-t border-default' }">
+        <template #header="{ collapsed }">
+          <span class="px-1 text-lg font-semibold tracking-tight text-highlighted">
+            {{ collapsed ? "i" : "isis" }}
+          </span>
+        </template>
+
+        <template #default="{ collapsed }">
+          <UNavigationMenu :collapsed="collapsed" :items="mainItems" orientation="vertical" />
+          <UNavigationMenu
+            v-if="workstreamItems.length"
+            :collapsed="collapsed"
+            :items="workstreamItems"
+            orientation="vertical"
+            class="mt-4"
           />
-          <template #body>
-            <div class="flex flex-col gap-6">
-              <SettingsPanel />
-              <JiraSettingsPanel />
-            </div>
-          </template>
-        </USlideover>
-      </header>
-      <JiraIssueList />
-    </main>
+        </template>
+
+        <template #footer="{ collapsed }">
+          <UNavigationMenu
+            :collapsed="collapsed"
+            :items="footerItems"
+            orientation="vertical"
+            class="w-full"
+          />
+        </template>
+      </UDashboardSidebar>
+
+      <RouterView />
+    </UDashboardGroup>
   </UApp>
 </template>

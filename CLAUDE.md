@@ -29,6 +29,8 @@ src/
   components/             app-specific shared components composed from Nuxt UI
   components.d.ts         generated types for auto-registered U* components (commit it)
   features/<feature>/     components/, stores/, composables/, index.ts (public API)
+  pages/                  route components: a UDashboardPanel composing features
+  router.ts               vue-router routes (hash history)
   lib/ipc.ts              typed command registry + call()
   types/                  TS mirrors of Rust models
 src-tauri/src/
@@ -43,12 +45,13 @@ src-tauri/migrations/     NNN_<name>.sql, applied in order by rusqlite_migration
 - Command handlers stay thin: resolve inputs (paths, state), call a service, return its result.
 - Persistence: small whole-document settings → JSON in `app_config_dir`; queryable app data → SQLite (`rusqlite`, `app_data_dir/isis.db`); secrets → OS keychain (`keyring`), never sent back to the frontend.
 - Database: services take `&Connection` (tests use `db::open_in_memory()`). Never hold `Db::lock()` across an `.await`. Schema changes are new migration files — never edit an applied one.
-- Import from other features via their `index.ts`, not deep paths.
+- Import from other features via their `index.ts`, not deep paths. Keep feature dependencies one-way (`workstreams` → `jira`, never back); a page can wire features together through slots instead.
+- Workstreams link items of any type via `workstream_items (item_type, item_id)`. A new item type adds a `WorkstreamItemType` variant, an `item_exists`/`prune` arm in `services/workstreams.rs`, and a list in `WorkstreamDetail`.
 
 ### 4. UI
 - Nuxt UI (`@nuxt/ui`, plain-Vue mode via `@nuxt/ui/vite`) is the component library. Reach for a `U*` component (UButton, UCard, UModal, UTable, …) before writing markup by hand. Docs: https://ui.nuxt.com/docs/components
 - `U*` components are auto-registered; `src/components.d.ts` is regenerated on `pnpm dev`/`pnpm build`. Composables are **not** auto-imported — import them explicitly (`@nuxt/ui/composables`, `@vueuse/core`).
-- The root component is wrapped in `<UApp>` (needed for toasts, tooltips, overlays).
+- The root component is wrapped in `<UApp>` (needed for toasts, tooltips, overlays). `App.vue` holds the `UDashboardGroup` + sidebar; each page renders a `UDashboardPanel` with a `UDashboardNavbar`.
 - Theme colors are set in `vite.config.ts` (`ui.colors`). Style with Tailwind utilities and Nuxt UI semantic classes (`text-muted`, `text-highlighted`, `bg-elevated`, …) rather than raw palette colors, so dark mode works automatically. Use the `ui` prop for per-instance overrides.
 - Dark mode is driven by VueUse `useColorMode`, kept in sync with the Rust-persisted setting by `useThemeSync`. Don't toggle the `dark` class manually.
 - Icons: Lucide (`i-lucide-*`), bundled locally from `@iconify-json/lucide` by scanning source files. Always write icon names as full string literals so the scanner finds them. The CSP blocks the Iconify API, so the app works offline.

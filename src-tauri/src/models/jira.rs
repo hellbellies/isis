@@ -57,6 +57,9 @@ pub struct JiraIssue {
     pub project_key: String,
     pub status_id: String,
     pub status_name: String,
+    /// False for issues kept only because they belong to a workstream.
+    pub assigned_to_me: bool,
+    pub workstream_id: Option<i64>,
 }
 
 /// Mirrored by `JiraIssueList` in `src/types/jira.ts`.

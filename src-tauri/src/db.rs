@@ -15,6 +15,7 @@ pub const DB_FILE: &str = "isis.db";
 const MIGRATIONS_SLICE: &[M<'_>] = &[
     M::up(include_str!("../migrations/001_jira_issues.sql")),
     M::up(include_str!("../migrations/002_jira_status_filter.sql")),
+    M::up(include_str!("../migrations/003_workstreams.sql")),
 ];
 const MIGRATIONS: Migrations<'_> = Migrations::from_slice(MIGRATIONS_SLICE);
 
@@ -49,6 +50,7 @@ pub fn open(dir: &Path) -> AppResult<Connection> {
 #[cfg(test)]
 pub fn open_in_memory() -> Connection {
     let mut conn = Connection::open_in_memory().unwrap();
+    conn.pragma_update(None, "foreign_keys", "ON").unwrap();
     MIGRATIONS.to_latest(&mut conn).unwrap();
     conn
 }
