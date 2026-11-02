@@ -10,6 +10,10 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::settings::get_settings,
             commands::settings::update_settings,
+            commands::jira::get_jira_settings,
+            commands::jira::update_jira_settings,
+            commands::jira::clear_jira_token,
+            commands::jira::test_jira_connection,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
