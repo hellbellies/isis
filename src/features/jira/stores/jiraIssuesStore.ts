@@ -79,6 +79,12 @@ export const useJiraIssuesStore = defineStore("jiraIssues", () => {
     }
   }
 
+  /** Reflects a saved workstream change locally, without reloading. */
+  function applyWorkstream(issueId: string, workstreamId: number | null): void {
+    const issue = issues.value.find((candidate) => candidate.id === issueId);
+    if (issue) issue.workstreamId = workstreamId;
+  }
+
   async function open(key: string): Promise<void> {
     try {
       await call("open_jira_issue", { key });
@@ -99,6 +105,7 @@ export const useJiraIssuesStore = defineStore("jiraIssues", () => {
     load,
     sync,
     setStatusFilter,
+    applyWorkstream,
     open,
   };
 });

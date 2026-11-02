@@ -9,6 +9,9 @@ import type {
   JiraSyncSummary,
   JiraUser,
   Settings,
+  Workstream,
+  WorkstreamDetail,
+  WorkstreamItemRef,
 } from "@/types";
 import { isAppError } from "@/types";
 
@@ -29,6 +32,15 @@ interface Commands {
   open_jira_issue: { args: { key: string }; result: null };
   get_jira_status_filter: { args: Record<string, never>; result: JiraStatusFilter };
   set_jira_status_filter: { args: { selected: JiraStatusRef[] }; result: JiraStatusFilter };
+  list_workstreams: { args: Record<string, never>; result: Workstream[] };
+  get_workstream: { args: { id: number }; result: WorkstreamDetail };
+  create_workstream: { args: { name: string }; result: Workstream };
+  rename_workstream: { args: { id: number; name: string }; result: Workstream };
+  delete_workstream: { args: { id: number }; result: null };
+  set_item_workstream: {
+    args: { item: WorkstreamItemRef; workstreamId: number | null };
+    result: null;
+  };
 }
 
 type CommandName = keyof Commands;

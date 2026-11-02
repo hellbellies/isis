@@ -30,6 +30,9 @@ export interface JiraIssue {
   projectKey: string;
   statusId: string;
   statusName: string;
+  /** False for issues kept only because they belong to a workstream. */
+  assignedToMe: boolean;
+  workstreamId: number | null;
 }
 
 /** Mirrors `JiraIssueList` in `src-tauri/src/models/jira.rs`. */

@@ -1,16 +1,22 @@
-//! Local cache of the user's Jira issues and the full/delta sync that fills it.
+//! Local cache of Jira issues and the full/delta sync that fills it.
 //!
-//! A full sync replaces every stored issue. A delta sync asks Jira only for issues
-//! updated since the last sync (relative JQL, so time zones don't matter) and
-//! - upserts those still assigned to the user,
-//! - removes those that were reassigned or unassigned.
+//! The cache holds the issues assigned to the user plus issues that belong to a
+//! workstream (kept with `assigned_to_me = 0` after being reassigned). Unlinked
+//! issues that are no longer assigned are pruned.
+//!
+//! A full sync re-fetches all assigned issues and every workstream-linked issue.
+//! A delta sync asks Jira only for issues in the configured projects updated since
+//! the last sync (relative JQL, so time zones don't matter), split into those
+//! assigned to the user and those that are not.
 //!
 //! Issues deleted in Jira are only noticed by a full sync.
 //!
 //! Every sync also refreshes the statuses each project can have; the user's
 //! status filter refers to those (project, status) pairs.
 
-use rusqlite::{Connection, OptionalExtension, params};
+use std::collections::HashSet;
+
+use rusqlite::{Connection, OptionalExtension, Row, params};
 
 use crate::db::Db;
 use crate::error::{AppError, AppResult};
@@ -22,6 +28,15 @@ use crate::services::jira_client::JiraClient;
 
 /// Extra minutes added to the delta window to absorb clock skew and search-index lag.
 const DELTA_MARGIN_MINUTES: i64 = 5;
+/// Issue ids per `id in (…)` query, keeping the JQL reasonably short.
+const ID_QUERY_CHUNK: usize = 100;
+
+/// Columns read by [`issue_from_row`]; `i` is `jira_issues`, `w` is `workstream_items`.
+const ISSUE_COLUMNS: &str = "i.id, i.key, i.summary, i.updated, i.project_key, i.status_id,
+     i.status_name, i.assigned_to_me, w.workstream_id";
+/// Joins each issue to its (optional) workstream link.
+const ISSUE_FROM: &str = "jira_issues i LEFT JOIN workstream_items w
+     ON w.item_type = 'jira_issue' AND w.item_id = i.id";
 
 /// What the next sync has to do.
 #[derive(Debug, PartialEq, Eq)]
@@ -38,28 +53,61 @@ struct SyncState {
     last_synced_at: i64,
 }
 
-/// All stored issues, most recently updated first.
+/// Issues assigned to the user, most recently updated first.
 pub fn list(conn: &Connection) -> AppResult<JiraIssueList> {
-    let mut statement = conn.prepare(
-        "SELECT id, key, summary, updated, project_key, status_id, status_name
-         FROM jira_issues ORDER BY updated DESC, key",
-    )?;
-    let issues = statement
-        .query_map([], |row| {
-            Ok(JiraIssue {
-                id: row.get(0)?,
-                key: row.get(1)?,
-                summary: row.get(2)?,
-                updated: row.get(3)?,
-                project_key: row.get(4)?,
-                status_id: row.get(5)?,
-                status_name: row.get(6)?,
-            })
-        })?
+    let issues = conn
+        .prepare(&format!(
+            "SELECT {ISSUE_COLUMNS} FROM {ISSUE_FROM}
+             WHERE i.assigned_to_me = 1 ORDER BY i.updated DESC, i.key"
+        ))?
+        .query_map([], issue_from_row)?
         .collect::<Result<Vec<_>, _>>()?;
     Ok(JiraIssueList {
         issues,
         last_synced_at: load_state(conn)?.map(|state| state.last_synced_at),
+    })
+}
+
+/// Issues linked to a workstream, including ones no longer assigned to the user.
+pub fn list_for_workstream(conn: &Connection, workstream_id: i64) -> AppResult<Vec<JiraIssue>> {
+    Ok(conn
+        .prepare(&format!(
+            "SELECT {ISSUE_COLUMNS} FROM {ISSUE_FROM}
+             WHERE w.workstream_id = ?1 ORDER BY i.updated DESC, i.key"
+        ))?
+        .query_map([workstream_id], issue_from_row)?
+        .collect::<Result<Vec<_>, _>>()?)
+}
+
+/// Whether an issue with this id is cached.
+pub fn exists(conn: &Connection, id: &str) -> AppResult<bool> {
+    Ok(conn
+        .query_row("SELECT 1 FROM jira_issues WHERE id = ?1", [id], |_| Ok(()))
+        .optional()?
+        .is_some())
+}
+
+/// Deletes issues that are neither assigned to the user nor linked to a workstream.
+/// Call after anything that can unlink issues. Returns the number removed.
+pub fn prune_unlinked(conn: &Connection) -> AppResult<usize> {
+    Ok(conn.execute(
+        "DELETE FROM jira_issues WHERE assigned_to_me = 0 AND id NOT IN
+             (SELECT item_id FROM workstream_items WHERE item_type = 'jira_issue')",
+        [],
+    )?)
+}
+
+fn issue_from_row(row: &Row<'_>) -> rusqlite::Result<JiraIssue> {
+    Ok(JiraIssue {
+        id: row.get(0)?,
+        key: row.get(1)?,
+        summary: row.get(2)?,
+        updated: row.get(3)?,
+        project_key: row.get(4)?,
+        status_id: row.get(5)?,
+        status_name: row.get(6)?,
+        assigned_to_me: row.get(7)?,
+        workstream_id: row.get(8)?,
     })
 }
 
@@ -83,23 +131,36 @@ pub async fn sync(
     let state = load_state(&db.lock())?;
     let projects = jql_projects(project_keys);
 
-    let (mode, upserts, removed_ids) = match plan(state.as_ref(), &scope, force_full, now_ms) {
+    let (mode, mine, others) = match plan(state.as_ref(), &scope, force_full, now_ms) {
         SyncPlan::Full => {
             let jql = format!("{projects} AND assignee = currentUser() ORDER BY updated DESC");
-            (JiraSyncMode::Full, client.search(&jql).await?, Vec::new())
+            let mine = client.search(&jql).await?;
+            // Refresh linked issues that are no longer (or never were) assigned to the user,
+            // wherever they live. Ids come from Jira, but keep only numeric ones for safe JQL.
+            let mine_ids: HashSet<&str> = mine.iter().map(|issue| issue.id.as_str()).collect();
+            let linked_ids: Vec<String> = linked_issue_ids(&db.lock())?
+                .into_iter()
+                .filter(|id| !mine_ids.contains(id.as_str()))
+                .filter(|id| !id.is_empty() && id.bytes().all(|b| b.is_ascii_digit()))
+                .collect();
+            let mut others = Vec::new();
+            for chunk in linked_ids.chunks(ID_QUERY_CHUNK) {
+                let jql = format!("id in ({})", chunk.join(", "));
+                others.extend(client.search(&jql).await?);
+            }
+            (JiraSyncMode::Full, mine, others)
         }
         SyncPlan::Delta { minutes } => {
             let changed = format!("{projects} AND updated >= \"-{minutes}m\"");
             let mine = client
                 .search(&format!("{changed} AND assignee = currentUser()"))
                 .await?;
-            let not_mine = client
+            let others = client
                 .search(&format!(
                     "{changed} AND (assignee != currentUser() OR assignee IS EMPTY)"
                 ))
                 .await?;
-            let removed_ids = not_mine.into_iter().map(|issue| issue.id).collect();
-            (JiraSyncMode::Delta, mine, removed_ids)
+            (JiraSyncMode::Delta, mine, others)
         }
     };
 
@@ -110,8 +171,8 @@ pub async fn sync(
 
     let result = SyncResult {
         mode,
-        upserts,
-        removed_ids,
+        mine,
+        others,
         statuses,
     };
     apply(&mut db.lock(), &result, &scope, now_ms)
@@ -208,9 +269,26 @@ fn jql_projects(project_keys: &[String]) -> String {
 /// Everything fetched from Jira in one sync.
 struct SyncResult {
     mode: JiraSyncMode,
-    upserts: Vec<JiraIssue>,
-    removed_ids: Vec<String>,
+    /// Issues assigned to the user.
+    mine: Vec<JiraIssue>,
+    /// Issues not assigned to the user: kept if linked to a workstream, otherwise pruned.
+    others: Vec<JiraIssue>,
     statuses: Vec<JiraProjectStatus>,
+}
+
+/// Ids of all Jira issues linked to any workstream.
+fn linked_issue_ids(conn: &Connection) -> AppResult<Vec<String>> {
+    Ok(conn
+        .prepare("SELECT item_id FROM workstream_items WHERE item_type = 'jira_issue'")?
+        .query_map([], |row| row.get(0))?
+        .collect::<Result<Vec<_>, _>>()?)
+}
+
+fn assigned_ids(conn: &Connection) -> AppResult<HashSet<String>> {
+    Ok(conn
+        .prepare("SELECT id FROM jira_issues WHERE assigned_to_me = 1")?
+        .query_map([], |row| row.get(0))?
+        .collect::<Result<HashSet<_>, _>>()?)
 }
 
 /// Writes a sync result in one transaction, so a failure leaves the previous data intact.
@@ -221,19 +299,24 @@ fn apply(
     now_ms: i64,
 ) -> AppResult<JiraSyncSummary> {
     let tx = conn.transaction()?;
+    let assigned_before = assigned_ids(&tx)?;
     if result.mode == JiraSyncMode::Full {
-        tx.execute("DELETE FROM jira_issues", [])?;
+        // Whatever the full sync doesn't report as assigned is no longer assigned.
+        tx.execute("UPDATE jira_issues SET assigned_to_me = 0", [])?;
     }
     {
         let mut upsert = tx.prepare(
-            "INSERT INTO jira_issues (id, key, summary, updated, project_key, status_id, status_name)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+            "INSERT INTO jira_issues
+                 (id, key, summary, updated, project_key, status_id, status_name, assigned_to_me)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
              ON CONFLICT(id) DO UPDATE SET
                  key = excluded.key, summary = excluded.summary, updated = excluded.updated,
                  project_key = excluded.project_key, status_id = excluded.status_id,
-                 status_name = excluded.status_name",
+                 status_name = excluded.status_name, assigned_to_me = excluded.assigned_to_me",
         )?;
-        for issue in &result.upserts {
+        let tagged = (result.mine.iter().map(|issue| (issue, true)))
+            .chain(result.others.iter().map(|issue| (issue, false)));
+        for (issue, assigned) in tagged {
             upsert.execute(params![
                 issue.id,
                 issue.key,
@@ -241,17 +324,15 @@ fn apply(
                 issue.updated,
                 issue.project_key,
                 issue.status_id,
-                issue.status_name
+                issue.status_name,
+                assigned
             ])?;
         }
     }
-    let mut removed = 0;
-    {
-        let mut delete = tx.prepare("DELETE FROM jira_issues WHERE id = ?1")?;
-        for id in &result.removed_ids {
-            removed += delete.execute(params![id])?;
-        }
-    }
+    prune_unlinked(&tx)?;
+    // "Removed" from the user's point of view: no longer in their list of assigned issues.
+    let assigned_after = assigned_ids(&tx)?;
+    let removed = assigned_before.difference(&assigned_after).count();
     // Statuses are always fetched in full, so replace them wholesale.
     tx.execute("DELETE FROM jira_project_statuses", [])?;
     {
@@ -276,7 +357,7 @@ fn apply(
     tx.commit()?;
     Ok(JiraSyncSummary {
         mode: result.mode,
-        upserted: result.upserts.len(),
+        upserted: result.mine.len(),
         removed,
     })
 }
@@ -584,5 +665,97 @@ mod tests {
                 .selected
                 .is_empty()
         );
+    }
+
+    /// Creates workstream "W" and links Jira issue `id` to it.
+    fn link_to_workstream(db: &Db, id: &str) -> i64 {
+        use crate::models::workstreams::{WorkstreamItemRef, WorkstreamItemType};
+        use crate::services::workstreams;
+        let mut conn = db.lock();
+        let workstream = workstreams::create(&conn, "W", NOW).unwrap();
+        let item = WorkstreamItemRef {
+            item_type: WorkstreamItemType::JiraIssue,
+            item_id: id.into(),
+        };
+        workstreams::set_item_workstream(&mut conn, &item, Some(workstream.id), NOW).unwrap();
+        workstream.id
+    }
+
+    #[tokio::test]
+    async fn reassigned_issue_stays_in_its_workstream() {
+        let mut server = Server::new_async().await;
+        mock_statuses(&mut server).await;
+        let db = Db::new(db::open_in_memory());
+        let client = client(&server.url());
+        let projects = keys(&["FOO"]);
+        mock_search(
+            &mut server,
+            "ORDER BY",
+            page(&[
+                issue_json("1", "FOO-1", "One"),
+                issue_json("2", "FOO-2", "Two"),
+            ]),
+        )
+        .await;
+        sync(&db, &client, &projects, false, NOW).await.unwrap();
+        let workstream_id = link_to_workstream(&db, "2");
+
+        // FOO-2 is handed to someone else and renamed; FOO-1 is unchanged.
+        server.reset();
+        mock_statuses(&mut server).await;
+        mock_search(&mut server, "assignee = currentUser()", page(&[])).await;
+        mock_search(
+            &mut server,
+            "assignee IS EMPTY",
+            page(&[issue_json("2", "FOO-2", "Two (handed over)")]),
+        )
+        .await;
+        let summary = sync(&db, &client, &projects, false, NOW + 60_000)
+            .await
+            .unwrap();
+        assert_eq!(summary.removed, 1);
+
+        assert_eq!(stored_keys(&db), ["FOO-1"]);
+        let linked = list_for_workstream(&db.lock(), workstream_id).unwrap();
+        assert_eq!(linked.len(), 1);
+        assert_eq!(linked[0].summary, "Two (handed over)");
+        assert!(!linked[0].assigned_to_me);
+    }
+
+    #[tokio::test]
+    async fn full_sync_refreshes_linked_issues_by_id() {
+        let mut server = Server::new_async().await;
+        mock_statuses(&mut server).await;
+        let db = Db::new(db::open_in_memory());
+        let client = client(&server.url());
+        let projects = keys(&["FOO"]);
+        mock_search(
+            &mut server,
+            "ORDER BY",
+            page(&[issue_json("7", "FOO-7", "Seven")]),
+        )
+        .await;
+        sync(&db, &client, &projects, false, NOW).await.unwrap();
+        let workstream_id = link_to_workstream(&db, "7");
+
+        // FOO-7 is no longer assigned; the full sync finds it only through its id.
+        server.reset();
+        mock_statuses(&mut server).await;
+        mock_search(&mut server, "ORDER BY", page(&[])).await;
+        let by_id = mock_search(
+            &mut server,
+            "id in (7)",
+            page(&[issue_json("7", "OTHER-7", "Seven (moved)")]),
+        )
+        .await;
+        sync(&db, &client, &projects, true, NOW + 60_000)
+            .await
+            .unwrap();
+        by_id.assert_async().await;
+
+        assert!(stored_keys(&db).is_empty());
+        let linked = list_for_workstream(&db.lock(), workstream_id).unwrap();
+        assert_eq!(linked[0].key, "OTHER-7");
+        assert!(!linked[0].assigned_to_me);
     }
 }

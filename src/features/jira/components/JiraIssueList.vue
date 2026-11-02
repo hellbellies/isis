@@ -3,15 +3,20 @@ import { computed, onMounted } from "vue";
 import { storeToRefs } from "pinia";
 import { useToast } from "@nuxt/ui/composables";
 import { useTimeAgo } from "@vueuse/core";
-import { statusRefId, useJiraIssuesStore } from "../stores/jiraIssuesStore";
+import { useJiraIssuesStore } from "../stores/jiraIssuesStore";
+import JiraIssueRow from "./JiraIssueRow.vue";
 import JiraStatusFilter from "./JiraStatusFilter.vue";
 import type { JiraIssue, JiraSyncSummary } from "@/types";
+
+defineSlots<{
+  /** Extra controls at the end of each row. */
+  actions?(props: { issue: JiraIssue }): unknown;
+}>();
 
 const store = useJiraIssuesStore();
 const {
   issues,
   visibleIssues,
-  statusOptions,
   selectedStatuses,
   lastSyncedAt,
   loaded,
@@ -19,22 +24,6 @@ const {
   error,
 } = storeToRefs(store);
 const toast = useToast();
-
-/** Badge color per Jira status category (To Do / In Progress / Done). */
-const categoryColors = {
-  new: "neutral",
-  indeterminate: "info",
-  done: "success",
-} as const;
-
-const categoryByStatus = computed(
-  () => new Map(statusOptions.value.map((status) => [statusRefId(status), status.category])),
-);
-
-function statusColor(issue: JiraIssue): "neutral" | "info" | "success" {
-  const category = categoryByStatus.value.get(statusRefId(issue));
-  return categoryColors[category as keyof typeof categoryColors] ?? "neutral";
-}
 
 const lastSyncedAgo = useTimeAgo(computed(() => lastSyncedAt.value ?? 0));
 
@@ -49,9 +38,8 @@ function describe(summary: JiraSyncSummary): string {
   return `${summary.upserted} updated, ${summary.removed} removed`;
 }
 
-onMounted(() => {
-  if (!loaded.value) void store.load();
-});
+// Local data only, so always reload: other views may have changed workstream links.
+onMounted(() => void store.load());
 </script>
 
 <template>
@@ -59,7 +47,7 @@ onMounted(() => {
     <template #header>
       <div class="flex items-center justify-between gap-4">
         <div>
-          <h2 class="font-semibold text-highlighted">My Jira issues</h2>
+          <h2 class="font-semibold text-highlighted">Assigned to me</h2>
           <p class="text-sm text-muted">
             <template v-if="lastSyncedAt">Last fetched {{ lastSyncedAgo }}</template>
             <template v-else>Not fetched yet</template>
@@ -100,24 +88,11 @@ onMounted(() => {
     />
 
     <ul v-if="visibleIssues.length" class="divide-y divide-default">
-      <li v-for="issue in visibleIssues" :key="issue.id" class="flex items-center gap-3 px-4 py-2.5">
-        <UBadge color="neutral" variant="subtle" class="shrink-0 font-mono" :label="issue.key" />
-        <ULink
-          as="button"
-          class="min-w-0 flex-1 truncate text-left"
-          :title="`Open ${issue.key} in Jira`"
-          @click="store.open(issue.key)"
-        >
-          {{ issue.summary }}
-        </ULink>
-        <UBadge
-          v-if="issue.statusName"
-          :color="statusColor(issue)"
-          variant="subtle"
-          class="shrink-0"
-          :label="issue.statusName"
-        />
-      </li>
+      <JiraIssueRow v-for="issue in visibleIssues" :key="issue.id" :issue="issue">
+        <template #actions>
+          <slot name="actions" :issue="issue" />
+        </template>
+      </JiraIssueRow>
     </ul>
 
     <UEmpty

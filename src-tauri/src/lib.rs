@@ -27,6 +27,12 @@ pub fn run() {
             commands::jira::open_jira_issue,
             commands::jira::get_jira_status_filter,
             commands::jira::set_jira_status_filter,
+            commands::workstreams::list_workstreams,
+            commands::workstreams::get_workstream,
+            commands::workstreams::create_workstream,
+            commands::workstreams::rename_workstream,
+            commands::workstreams::delete_workstream,
+            commands::workstreams::set_item_workstream,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

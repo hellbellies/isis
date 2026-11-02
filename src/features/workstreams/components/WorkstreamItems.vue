@@ -1,0 +1,80 @@
+<script setup lang="ts">
+import { onMounted, watch } from "vue";
+import { storeToRefs } from "pinia";
+import { useToast } from "@nuxt/ui/composables";
+import { JiraIssueRow, useJiraIssuesStore } from "@/features/jira";
+import { useWorkstreamsStore } from "../stores/workstreamsStore";
+import type { AppError, JiraIssue } from "@/types";
+
+/** Lists everything in a workstream, grouped by item type. */
+const props = defineProps<{ id: number }>();
+
+const store = useWorkstreamsStore();
+const { current, currentError } = storeToRefs(store);
+const jiraStore = useJiraIssuesStore();
+const toast = useToast();
+
+async function removeIssue(issue: JiraIssue): Promise<void> {
+  try {
+    await store.assign({ itemType: "jiraIssue", itemId: issue.id }, null);
+  } catch (err: unknown) {
+    toast.add({ title: (err as AppError).message, color: "error", icon: "i-lucide-circle-alert" });
+  }
+}
+
+watch(() => props.id, (id) => void store.loadDetail(id));
+onMounted(() => {
+  void store.loadDetail(props.id);
+  // Status options give the status badges their colors.
+  if (!jiraStore.loaded) void jiraStore.load();
+});
+</script>
+
+<template>
+  <UAlert
+    v-if="currentError"
+    color="error"
+    variant="subtle"
+    icon="i-lucide-circle-alert"
+    :title="currentError.message"
+  />
+
+  <div v-else-if="current" class="flex flex-col gap-6">
+    <UCard :ui="{ body: 'p-0 sm:p-0' }">
+      <template #header>
+        <div class="flex items-center gap-2">
+          <UIcon name="i-lucide-ticket" class="size-4 text-muted" />
+          <h2 class="font-semibold text-highlighted">Jira issues</h2>
+          <UBadge color="neutral" variant="subtle" size="sm" :label="current.jiraIssues.length" />
+        </div>
+      </template>
+
+      <ul v-if="current.jiraIssues.length" class="divide-y divide-default">
+        <JiraIssueRow v-for="issue in current.jiraIssues" :key="issue.id" :issue="issue">
+          <template #actions>
+            <UTooltip text="Remove from workstream">
+              <UButton
+                color="neutral"
+                variant="ghost"
+                size="sm"
+                icon="i-lucide-x"
+                :aria-label="`Remove ${issue.key} from workstream`"
+                @click="removeIssue(issue)"
+              />
+            </UTooltip>
+          </template>
+        </JiraIssueRow>
+      </ul>
+      <UEmpty
+        v-else
+        class="py-10"
+        icon="i-lucide-ticket"
+        title="No Jira issues yet"
+        description="Add issues to this workstream from the Jira issues list."
+        :actions="[
+          { label: 'Go to Jira issues', icon: 'i-lucide-arrow-right', color: 'neutral', variant: 'subtle', to: '/jira' },
+        ]"
+      />
+    </UCard>
+  </div>
+</template>

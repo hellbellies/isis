@@ -11,8 +11,8 @@ export default defineConfig(() => ({
   plugins: [
     vue(),
     ui({
-      // No vue-router in this app; links render as plain anchors.
-      router: false,
+      // Links and navigation menus integrate with vue-router (see src/router.ts).
+      router: true,
       // Composables are imported explicitly (e.g. from "@nuxt/ui/composables").
       autoImport: false,
       // Components (U*) are auto-registered; types land in components.d.ts.
