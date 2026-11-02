@@ -37,7 +37,7 @@ impl GitHubClient {
         let http = reqwest::Client::builder()
             .timeout(REQUEST_TIMEOUT)
             // GitHub rejects requests without a User-Agent.
-            .user_agent(concat!("isis/", env!("CARGO_PKG_VERSION")))
+            .user_agent(concat!("osiris/", env!("CARGO_PKG_VERSION")))
             .build()
             .map_err(|err| AppError::GitHub(format!("Could not create HTTP client: {err}")))?;
         Ok(Self {
@@ -286,7 +286,7 @@ pub(crate) mod tests {
         let mock = server
             .mock("POST", "/graphql")
             .match_header("authorization", "Bearer ghp_test")
-            .match_header("user-agent", Matcher::Regex("^isis/".into()))
+            .match_header("user-agent", Matcher::Regex("^osiris/".into()))
             .with_body(r#"{"data":{"viewer":{"login":"ada","name":"Ada Lovelace"}}}"#)
             .create_async()
             .await;
