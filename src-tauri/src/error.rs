@@ -14,6 +14,15 @@ pub enum AppError {
 
     #[error("tauri error: {0}")]
     Tauri(#[from] tauri::Error),
+
+    #[error("keychain error: {0}")]
+    Keyring(#[from] keyring::Error),
+
+    #[error("{0}")]
+    Validation(String),
+
+    #[error("{0}")]
+    Jira(String),
 }
 
 impl AppError {
@@ -22,6 +31,9 @@ impl AppError {
             AppError::Io(_) => "io",
             AppError::Serde(_) => "serde",
             AppError::Tauri(_) => "tauri",
+            AppError::Keyring(_) => "keyring",
+            AppError::Validation(_) => "validation",
+            AppError::Jira(_) => "jira",
         }
     }
 }

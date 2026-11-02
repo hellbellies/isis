@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { AppError, Settings } from "@/types";
+import type { AppError, JiraSettings, JiraSettingsInput, JiraUser, Settings } from "@/types";
 import { isAppError } from "@/types";
 
 /**
@@ -10,6 +10,10 @@ import { isAppError } from "@/types";
 interface Commands {
   get_settings: { args: Record<string, never>; result: Settings };
   update_settings: { args: { settings: Settings }; result: Settings };
+  get_jira_settings: { args: Record<string, never>; result: JiraSettings };
+  update_jira_settings: { args: { input: JiraSettingsInput }; result: JiraSettings };
+  clear_jira_token: { args: Record<string, never>; result: JiraSettings };
+  test_jira_connection: { args: { input: JiraSettingsInput }; result: JiraUser };
 }
 
 type CommandName = keyof Commands;
