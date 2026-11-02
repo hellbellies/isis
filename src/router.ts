@@ -20,6 +20,11 @@ export const router = createRouter({
       props: (route) => ({ id: Number(route.params.id) }),
     },
     { path: "/jira", name: "jira", component: () => import("@/pages/JiraIssuesPage.vue") },
+    {
+      path: "/pull-requests",
+      name: "pull-requests",
+      component: () => import("@/pages/PullRequestsPage.vue"),
+    },
     { path: "/settings", name: "settings", component: () => import("@/pages/SettingsPage.vue") },
     { path: "/:pathMatch(.*)*", redirect: "/workstreams" },
   ],

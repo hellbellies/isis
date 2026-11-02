@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+use crate::models::github::PullRequest;
 use crate::models::jira::JiraIssue;
 
 /// Mirrored by `Workstream` in `src/types/workstreams.ts`.
@@ -21,6 +22,7 @@ pub struct Workstream {
 pub struct WorkstreamDetail {
     pub workstream: Workstream,
     pub jira_issues: Vec<JiraIssue>,
+    pub pull_requests: Vec<PullRequest>,
 }
 
 /// Kinds of items a workstream can hold. Mirrored by `WorkstreamItemType` in `src/types/workstreams.ts`.
@@ -28,6 +30,7 @@ pub struct WorkstreamDetail {
 #[serde(rename_all = "camelCase")]
 pub enum WorkstreamItemType {
     JiraIssue,
+    PullRequest,
 }
 
 impl WorkstreamItemType {
@@ -35,6 +38,7 @@ impl WorkstreamItemType {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::JiraIssue => "jira_issue",
+            Self::PullRequest => "github_pr",
         }
     }
 }

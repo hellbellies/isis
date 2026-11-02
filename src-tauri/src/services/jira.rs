@@ -6,52 +6,9 @@ use url::Url;
 use crate::error::{AppError, AppResult};
 use crate::models::jira::{JiraConfig, JiraSettings, JiraSettingsInput, JiraUser};
 use crate::services::jira_client::{JiraClient, JiraCredentials};
+use crate::services::secrets::SecretStore;
 
 pub const JIRA_CONFIG_FILE: &str = "jira.json";
-
-/// Storage for a single secret. Abstracted so tests don't touch the real keychain.
-pub trait SecretStore {
-    fn get(&self) -> AppResult<Option<String>>;
-    fn set(&self, secret: &str) -> AppResult<()>;
-    fn delete(&self) -> AppResult<()>;
-}
-
-/// OS keychain entry (macOS Keychain, Windows Credential Manager, Secret Service on Linux).
-pub struct KeyringStore {
-    service: &'static str,
-    user: &'static str,
-}
-
-impl KeyringStore {
-    pub const fn new(service: &'static str, user: &'static str) -> Self {
-        Self { service, user }
-    }
-
-    fn entry(&self) -> AppResult<keyring::Entry> {
-        Ok(keyring::Entry::new(self.service, self.user)?)
-    }
-}
-
-impl SecretStore for KeyringStore {
-    fn get(&self) -> AppResult<Option<String>> {
-        match self.entry()?.get_password() {
-            Ok(secret) => Ok(Some(secret)),
-            Err(keyring::Error::NoEntry) => Ok(None),
-            Err(err) => Err(err.into()),
-        }
-    }
-
-    fn set(&self, secret: &str) -> AppResult<()> {
-        Ok(self.entry()?.set_password(secret)?)
-    }
-
-    fn delete(&self) -> AppResult<()> {
-        match self.entry()?.delete_credential() {
-            Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
-            Err(err) => Err(err.into()),
-        }
-    }
-}
 
 pub fn load_config(dir: &Path) -> AppResult<JiraConfig> {
     let path = dir.join(JIRA_CONFIG_FILE);
@@ -211,26 +168,8 @@ pub fn is_project_key(key: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use std::cell::RefCell;
-
     use super::*;
-
-    #[derive(Default)]
-    struct MemoryStore(RefCell<Option<String>>);
-
-    impl SecretStore for MemoryStore {
-        fn get(&self) -> AppResult<Option<String>> {
-            Ok(self.0.borrow().clone())
-        }
-        fn set(&self, secret: &str) -> AppResult<()> {
-            *self.0.borrow_mut() = Some(secret.to_owned());
-            Ok(())
-        }
-        fn delete(&self) -> AppResult<()> {
-            *self.0.borrow_mut() = None;
-            Ok(())
-        }
-    }
+    use crate::services::secrets::tests::MemoryStore;
 
     fn input(base_url: &str, api_token: Option<&str>) -> JiraSettingsInput {
         JiraSettingsInput {

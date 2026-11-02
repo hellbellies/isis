@@ -16,6 +16,7 @@ const MIGRATIONS_SLICE: &[M<'_>] = &[
     M::up(include_str!("../migrations/001_jira_issues.sql")),
     M::up(include_str!("../migrations/002_jira_status_filter.sql")),
     M::up(include_str!("../migrations/003_workstreams.sql")),
+    M::up(include_str!("../migrations/004_github_pull_requests.sql")),
 ];
 const MIGRATIONS: Migrations<'_> = Migrations::from_slice(MIGRATIONS_SLICE);
 

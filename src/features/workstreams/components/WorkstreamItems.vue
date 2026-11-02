@@ -3,8 +3,9 @@ import { onMounted, watch } from "vue";
 import { storeToRefs } from "pinia";
 import { useToast } from "@nuxt/ui/composables";
 import { JiraIssueRow, useJiraIssuesStore } from "@/features/jira";
+import { PullRequestRow } from "@/features/github";
 import { useWorkstreamsStore } from "../stores/workstreamsStore";
-import type { AppError, JiraIssue } from "@/types";
+import type { AppError, WorkstreamItemRef } from "@/types";
 
 /** Lists everything in a workstream, grouped by item type. */
 const props = defineProps<{ id: number }>();
@@ -14,9 +15,9 @@ const { current, currentError } = storeToRefs(store);
 const jiraStore = useJiraIssuesStore();
 const toast = useToast();
 
-async function removeIssue(issue: JiraIssue): Promise<void> {
+async function removeItem(item: WorkstreamItemRef): Promise<void> {
   try {
-    await store.assign({ itemType: "jiraIssue", itemId: issue.id }, null);
+    await store.assign(item, null);
   } catch (err: unknown) {
     toast.add({ title: (err as AppError).message, color: "error", icon: "i-lucide-circle-alert" });
   }
@@ -59,7 +60,7 @@ onMounted(() => {
                 size="sm"
                 icon="i-lucide-x"
                 :aria-label="`Remove ${issue.key} from workstream`"
-                @click="removeIssue(issue)"
+                @click="removeItem({ itemType: 'jiraIssue', itemId: issue.id })"
               />
             </UTooltip>
           </template>
@@ -73,6 +74,43 @@ onMounted(() => {
         description="Add issues to this workstream from the Jira issues list."
         :actions="[
           { label: 'Go to Jira issues', icon: 'i-lucide-arrow-right', color: 'neutral', variant: 'subtle', to: '/jira' },
+        ]"
+      />
+    </UCard>
+
+    <UCard :ui="{ body: 'p-0 sm:p-0' }">
+      <template #header>
+        <div class="flex items-center gap-2">
+          <UIcon name="i-lucide-git-pull-request" class="size-4 text-muted" />
+          <h2 class="font-semibold text-highlighted">Pull requests</h2>
+          <UBadge color="neutral" variant="subtle" size="sm" :label="current.pullRequests.length" />
+        </div>
+      </template>
+
+      <ul v-if="current.pullRequests.length" class="divide-y divide-default">
+        <PullRequestRow v-for="pr in current.pullRequests" :key="pr.id" :pull-request="pr">
+          <template #actions>
+            <UTooltip text="Remove from workstream">
+              <UButton
+                color="neutral"
+                variant="ghost"
+                size="sm"
+                icon="i-lucide-x"
+                :aria-label="`Remove ${pr.repository}#${pr.number} from workstream`"
+                @click="removeItem({ itemType: 'pullRequest', itemId: pr.id })"
+              />
+            </UTooltip>
+          </template>
+        </PullRequestRow>
+      </ul>
+      <UEmpty
+        v-else
+        class="py-10"
+        icon="i-lucide-git-pull-request"
+        title="No pull requests yet"
+        description="Add pull requests to this workstream from the pull requests list."
+        :actions="[
+          { label: 'Go to pull requests', icon: 'i-lucide-arrow-right', color: 'neutral', variant: 'subtle', to: '/pull-requests' },
         ]"
       />
     </UCard>

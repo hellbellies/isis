@@ -4,6 +4,7 @@ import { storeToRefs } from "pinia";
 import type { NavigationMenuItem } from "@nuxt/ui";
 import { useSettingsStore, useThemeSync } from "@/features/settings";
 import { useJiraIssuesStore } from "@/features/jira";
+import { usePullRequestsStore } from "@/features/github";
 import { useWorkstreamsStore } from "@/features/workstreams";
 
 const settingsStore = useSettingsStore();
@@ -11,8 +12,10 @@ useThemeSync(computed(() => settingsStore.settings?.theme));
 
 const workstreamsStore = useWorkstreamsStore();
 const jiraStore = useJiraIssuesStore();
+const pullRequestsStore = usePullRequestsStore();
 const { workstreams } = storeToRefs(workstreamsStore);
 const { issues } = storeToRefs(jiraStore);
+const { pullRequests } = storeToRefs(pullRequestsStore);
 
 const mainItems = computed<NavigationMenuItem[]>(() => [
   { label: "Workstreams", icon: "i-lucide-layers", to: "/workstreams", exact: true },
@@ -21,6 +24,12 @@ const mainItems = computed<NavigationMenuItem[]>(() => [
     icon: "i-lucide-ticket",
     to: "/jira",
     badge: issues.value.length || undefined,
+  },
+  {
+    label: "Pull requests",
+    icon: "i-lucide-git-pull-request",
+    to: "/pull-requests",
+    badge: pullRequests.value.length || undefined,
   },
 ]);
 
@@ -47,6 +56,7 @@ onMounted(() => {
   if (!settingsStore.settings) void settingsStore.load();
   void workstreamsStore.load();
   void jiraStore.load();
+  void pullRequestsStore.load();
 });
 </script>
 

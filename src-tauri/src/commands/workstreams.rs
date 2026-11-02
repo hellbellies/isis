@@ -1,7 +1,6 @@
-use std::time::{SystemTime, UNIX_EPOCH};
-
 use tauri::State;
 
+use super::now_ms;
 use crate::db::Db;
 use crate::error::AppResult;
 use crate::models::workstreams::{Workstream, WorkstreamDetail, WorkstreamItemRef};
@@ -40,10 +39,4 @@ pub async fn set_item_workstream(
     workstream_id: Option<i64>,
 ) -> AppResult<()> {
     workstreams::set_item_workstream(&mut db.lock(), &item, workstream_id, now_ms())
-}
-
-fn now_ms() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |elapsed| elapsed.as_millis() as i64)
 }

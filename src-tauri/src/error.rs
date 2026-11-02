@@ -32,6 +32,9 @@ pub enum AppError {
 
     #[error("{0}")]
     Jira(String),
+
+    #[error("{0}")]
+    GitHub(String),
 }
 
 impl AppError {
@@ -44,6 +47,7 @@ impl AppError {
             AppError::Db(_) | AppError::Migration(_) => "db",
             AppError::Validation(_) => "validation",
             AppError::Jira(_) => "jira",
+            AppError::GitHub(_) => "github",
         }
     }
 }

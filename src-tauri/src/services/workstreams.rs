@@ -10,7 +10,7 @@ use crate::error::{AppError, AppResult};
 use crate::models::workstreams::{
     Workstream, WorkstreamDetail, WorkstreamItemRef, WorkstreamItemType,
 };
-use crate::services::jira_issues;
+use crate::services::{jira_issues, pull_requests};
 
 const MAX_NAME_LENGTH: usize = 80;
 
@@ -57,6 +57,7 @@ pub fn detail(conn: &Connection, id: i64) -> AppResult<WorkstreamDetail> {
     Ok(WorkstreamDetail {
         workstream: get(conn, id)?,
         jira_issues: jira_issues::list_for_workstream(conn, id)?,
+        pull_requests: pull_requests::list_for_workstream(conn, id)?,
     })
 }
 
@@ -89,6 +90,7 @@ pub fn delete(conn: &mut Connection, id: i64) -> AppResult<()> {
         return Err(not_found());
     }
     jira_issues::prune_unlinked(&tx)?;
+    pull_requests::prune_unlinked(&tx)?;
     tx.commit()?;
     Ok(())
 }
@@ -132,6 +134,7 @@ pub fn set_item_workstream(
 fn item_exists(conn: &Connection, item: &WorkstreamItemRef) -> AppResult<bool> {
     match item.item_type {
         WorkstreamItemType::JiraIssue => jira_issues::exists(conn, &item.item_id),
+        WorkstreamItemType::PullRequest => pull_requests::exists(conn, &item.item_id),
     }
 }
 
@@ -139,6 +142,7 @@ fn item_exists(conn: &Connection, item: &WorkstreamItemRef) -> AppResult<bool> {
 fn prune(conn: &Connection, item_type: WorkstreamItemType) -> AppResult<()> {
     match item_type {
         WorkstreamItemType::JiraIssue => jira_issues::prune_unlinked(conn).map(|_| ()),
+        WorkstreamItemType::PullRequest => pull_requests::prune_unlinked(conn).map(|_| ()),
     }
 }
 
