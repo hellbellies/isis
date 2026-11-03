@@ -21,6 +21,9 @@ export default defineConfig(() => ({
       theme: { colors: ["primary", "secondary", "success", "info", "warning", "error", "epic"] },
       ui: {
         colors: { primary: "indigo", neutral: "zinc", epic: "purple" },
+        // The panel body is a scrolling flex column; without this, children with
+        // `overflow-hidden` (e.g. UCard) shrink to the viewport and clip instead of scrolling.
+        dashboardPanel: { slots: { body: "*:shrink-0" } },
       },
     }),
   ],
