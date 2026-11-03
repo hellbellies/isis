@@ -21,6 +21,18 @@ pnpm tauri dev
 pnpm tauri build
 ```
 
+The bundles end up in `src-tauri/target/release/bundle/`.
+
+### Install on macOS
+
+```sh
+pnpm install:mac
+```
+
+Builds a release `osiris.app` (no DMG) and replaces `/Applications/osiris.app` with it. Quit osiris first; a running copy keeps the old version until restarted. The app is not code-signed, but macOS opens builds made on the same machine without complaint.
+
+The installed app and `pnpm tauri dev` share the same identifier, so they use the same database, settings and keychain tokens.
+
 ## Connecting Jira and GitHub
 
 osiris only reads from Jira and GitHub. Tokens are stored in the operating system's keychain (macOS Keychain, Windows Credential Manager, Secret Service on Linux), never in plain files, and are not readable from the app's UI. Enter them under **Settings**, click **Test connection**, then **Save**.
