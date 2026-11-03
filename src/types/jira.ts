@@ -25,6 +25,8 @@ export interface JiraIssue {
   id: string;
   key: string;
   summary: string;
+  /** Name of the work type, e.g. "Task", "Bug" or "Epic"; empty if unknown. */
+  issueType: string;
   /** ISO-8601 timestamp of the last change in Jira. */
   updated: string;
   projectKey: string;
