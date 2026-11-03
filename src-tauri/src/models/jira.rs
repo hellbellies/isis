@@ -52,6 +52,8 @@ pub struct JiraIssue {
     pub id: String,
     pub key: String,
     pub summary: String,
+    /// Name of the work type, e.g. `Task`, `Bug` or `Epic`; empty if unknown.
+    pub issue_type: String,
     /// ISO-8601 timestamp of the last change, as reported by Jira.
     pub updated: String,
     pub project_key: String,

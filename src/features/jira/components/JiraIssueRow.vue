@@ -16,6 +16,18 @@ const categoryColors = {
   done: "success",
 } as const;
 
+/** Epics purple, bugs red, every other work type blue. */
+const issueTypeColor = computed(() => {
+  switch (props.issue.issueType.toLowerCase()) {
+    case "epic":
+      return "epic";
+    case "bug":
+      return "error";
+    default:
+      return "info";
+  }
+});
+
 const statusColor = computed(() => {
   const id = statusRefId(props.issue);
   const category = statusOptions.value.find((status) => statusRefId(status) === id)?.category;
@@ -26,6 +38,13 @@ const statusColor = computed(() => {
 <template>
   <li class="flex items-center gap-3 px-4 py-2.5">
     <UBadge color="neutral" variant="subtle" class="shrink-0 font-mono" :label="issue.key" />
+    <UBadge
+      v-if="issue.issueType"
+      :color="issueTypeColor"
+      variant="subtle"
+      class="shrink-0"
+      :label="issue.issueType"
+    />
     <ULink
       as="button"
       class="min-w-0 flex-1 truncate text-left"

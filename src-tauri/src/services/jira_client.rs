@@ -58,7 +58,7 @@ impl JiraClient {
         for _ in 0..MAX_PAGES {
             let body = SearchRequest {
                 jql,
-                fields: &["summary", "updated", "status", "project"],
+                fields: &["summary", "issuetype", "updated", "status", "project"],
                 max_results: PAGE_SIZE,
                 next_page_token: next_page_token.as_deref(),
             };
@@ -190,8 +190,14 @@ struct SearchFields {
     summary: String,
     #[serde(default)]
     updated: String,
+    issuetype: Option<IssueType>,
     status: Option<Status>,
     project: Option<Project>,
+}
+
+#[derive(Deserialize)]
+struct IssueType {
+    name: String,
 }
 
 #[derive(Deserialize)]
@@ -231,6 +237,7 @@ impl From<SearchIssue> for JiraIssue {
             id: issue.id,
             key: issue.key,
             summary: fields.summary,
+            issue_type: fields.issuetype.map(|t| t.name).unwrap_or_default(),
             updated: fields.updated,
             project_key,
             status_id: status_id.unwrap_or_default(),
@@ -327,7 +334,7 @@ pub(crate) mod tests {
             .match_header("authorization", AUTH)
             .match_body(Matcher::Regex(r#""maxResults":100\}$"#.into()))
             .with_body(
-                r#"{"issues":[{"id":"1","key":"FOO-1","fields":{"summary":"One","updated":"2026-11-01T10:00:00.000+0000","status":{"id":"3","name":"In Progress"},"project":{"key":"FOO"}}}],"nextPageToken":"p2","isLast":false}"#,
+                r#"{"issues":[{"id":"1","key":"FOO-1","fields":{"summary":"One","issuetype":{"id":"10001","name":"Bug"},"updated":"2026-11-01T10:00:00.000+0000","status":{"id":"3","name":"In Progress"},"project":{"key":"FOO"}}}],"nextPageToken":"p2","isLast":false}"#,
             )
             .create_async()
             .await;
@@ -345,10 +352,12 @@ pub(crate) mod tests {
         assert_eq!(keys, ["FOO-1", "FOO-2"]);
         assert_eq!(issues[1].summary, "Two");
         assert_eq!(issues[0].status_name, "In Progress");
+        assert_eq!(issues[0].issue_type, "Bug");
         assert_eq!(issues[0].project_key, "FOO");
         // Missing fields fall back to defaults / the key prefix.
         assert_eq!(issues[1].project_key, "FOO");
         assert_eq!(issues[1].status_id, "");
+        assert_eq!(issues[1].issue_type, "");
         first.assert_async().await;
         second.assert_async().await;
     }

@@ -17,8 +17,10 @@ export default defineConfig(() => ({
       autoImport: false,
       // Components (U*) are auto-registered; types land in components.d.ts.
       components: { dts: "src/components.d.ts" },
+      // Nuxt UI's defaults plus `epic`, which colors Jira epic badges.
+      theme: { colors: ["primary", "secondary", "success", "info", "warning", "error", "epic"] },
       ui: {
-        colors: { primary: "indigo", neutral: "zinc" },
+        colors: { primary: "indigo", neutral: "zinc", epic: "purple" },
       },
     }),
   ],

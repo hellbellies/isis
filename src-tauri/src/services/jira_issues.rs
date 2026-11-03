@@ -32,8 +32,8 @@ const DELTA_MARGIN_MINUTES: i64 = 5;
 const ID_QUERY_CHUNK: usize = 100;
 
 /// Columns read by [`issue_from_row`]; `i` is `jira_issues`, `w` is `workstream_items`.
-const ISSUE_COLUMNS: &str = "i.id, i.key, i.summary, i.updated, i.project_key, i.status_id,
-     i.status_name, i.assigned_to_me, w.workstream_id";
+const ISSUE_COLUMNS: &str = "i.id, i.key, i.summary, i.issue_type, i.updated, i.project_key,
+     i.status_id, i.status_name, i.assigned_to_me, w.workstream_id";
 /// Joins each issue to its (optional) workstream link.
 const ISSUE_FROM: &str = "jira_issues i LEFT JOIN workstream_items w
      ON w.item_type = 'jira_issue' AND w.item_id = i.id";
@@ -115,12 +115,13 @@ fn issue_from_row(row: &Row<'_>) -> rusqlite::Result<JiraIssue> {
         id: row.get(0)?,
         key: row.get(1)?,
         summary: row.get(2)?,
-        updated: row.get(3)?,
-        project_key: row.get(4)?,
-        status_id: row.get(5)?,
-        status_name: row.get(6)?,
-        assigned_to_me: row.get(7)?,
-        workstream_id: row.get(8)?,
+        issue_type: row.get(3)?,
+        updated: row.get(4)?,
+        project_key: row.get(5)?,
+        status_id: row.get(6)?,
+        status_name: row.get(7)?,
+        assigned_to_me: row.get(8)?,
+        workstream_id: row.get(9)?,
     })
 }
 
@@ -320,10 +321,12 @@ fn apply(
     {
         let mut upsert = tx.prepare(
             "INSERT INTO jira_issues
-                 (id, key, summary, updated, project_key, status_id, status_name, assigned_to_me)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+                 (id, key, summary, issue_type, updated, project_key, status_id, status_name,
+                  assigned_to_me)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
              ON CONFLICT(id) DO UPDATE SET
-                 key = excluded.key, summary = excluded.summary, updated = excluded.updated,
+                 key = excluded.key, summary = excluded.summary,
+                 issue_type = excluded.issue_type, updated = excluded.updated,
                  project_key = excluded.project_key, status_id = excluded.status_id,
                  status_name = excluded.status_name, assigned_to_me = excluded.assigned_to_me",
         )?;
@@ -334,6 +337,7 @@ fn apply(
                 issue.id,
                 issue.key,
                 issue.summary,
+                issue.issue_type,
                 issue.updated,
                 issue.project_key,
                 issue.status_id,
@@ -406,7 +410,7 @@ mod tests {
 
     fn issue_json(id: &str, key: &str, summary: &str) -> String {
         format!(
-            r#"{{"id":"{id}","key":"{key}","fields":{{"summary":"{summary}","updated":"2026-11-02T10:00:00.000+0000","status":{{"id":"3","name":"In Progress"}}}}}}"#
+            r#"{{"id":"{id}","key":"{key}","fields":{{"summary":"{summary}","issuetype":{{"name":"Epic"}},"updated":"2026-11-02T10:00:00.000+0000","status":{{"id":"3","name":"In Progress"}}}}}}"#
         )
     }
 
@@ -621,7 +625,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn sync_stores_issue_status_and_project_statuses() {
+    async fn sync_stores_issue_status_type_and_project_statuses() {
         let mut server = Server::new_async().await;
         mock_statuses(&mut server).await;
         let db = Db::new(db::open_in_memory());
@@ -635,9 +639,10 @@ mod tests {
             (
                 issue.project_key.as_str(),
                 issue.status_id.as_str(),
-                issue.status_name.as_str()
+                issue.status_name.as_str(),
+                issue.issue_type.as_str()
             ),
-            ("FOO", "3", "In Progress")
+            ("FOO", "3", "In Progress", "Epic")
         );
         let filter = status_filter(&db.lock()).unwrap();
         let names: Vec<_> = filter.options.iter().map(|s| s.name.as_str()).collect();
