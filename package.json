@@ -8,6 +8,7 @@
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
+    "install:mac": "tauri build --bundles app && rm -rf /Applications/osiris.app && ditto src-tauri/target/release/bundle/macos/osiris.app /Applications/osiris.app",
     "typecheck": "vue-tsc --noEmit",
     "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml"
   },

@@ -6,6 +6,7 @@ Tauri v2 desktop app · Vue 3 (Composition API, `<script setup>`) · TypeScript 
 
 - `pnpm tauri dev` — run the desktop app with HMR
 - `pnpm tauri build` — production bundle
+- `pnpm install:mac` — release-build the macOS `.app` and replace `/Applications/osiris.app` with it
 - `pnpm typecheck` — `vue-tsc --noEmit`
 - `pnpm test:rust` — Rust unit tests
 - `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings`
