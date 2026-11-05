@@ -71,6 +71,8 @@ pub struct PullRequest {
     pub updated_at: String,
     pub authored_by_me: bool,
     pub review_requested: bool,
+    /// Open in a watched repository, without involving the user.
+    pub other_open: bool,
     pub workstream_id: Option<i64>,
 }
 
@@ -91,4 +93,6 @@ pub struct GitHubSyncSummary {
     pub fetched: usize,
     /// Pull requests that dropped out of the user's list.
     pub removed: usize,
+    /// Other open pull requests in the watched repositories.
+    pub others: usize,
 }

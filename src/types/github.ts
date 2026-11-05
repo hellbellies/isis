@@ -40,6 +40,8 @@ export interface PullRequest {
   updatedAt: string;
   authoredByMe: boolean;
   reviewRequested: boolean;
+  /** Open in a watched repository, without involving the user. */
+  otherOpen: boolean;
   workstreamId: number | null;
 }
 
@@ -54,4 +56,6 @@ export interface PullRequestList {
 export interface GitHubSyncSummary {
   fetched: number;
   removed: number;
+  /** Other open pull requests in the watched repositories. */
+  others: number;
 }

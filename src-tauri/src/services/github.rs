@@ -81,14 +81,18 @@ pub async fn test_connection(
 /// Search qualifiers restricting results to the configured repositories/owners
 /// (GitHub ORs multiple `repo:`/`user:` qualifiers). Empty for "everywhere".
 pub fn search_scope(repositories: &[String]) -> String {
+    scope_qualifiers(repositories).join(" ")
+}
+
+/// One search qualifier per entry: `repo:owner/name` or `user:owner`.
+pub fn scope_qualifiers(repositories: &[String]) -> Vec<String> {
     repositories
         .iter()
         .map(|entry| match entry.contains('/') {
             true => format!("repo:{entry}"),
             false => format!("user:{entry}"),
         })
-        .collect::<Vec<_>>()
-        .join(" ")
+        .collect()
 }
 
 /// Trims entries, accepts pasted GitHub URLs, drops duplicates (ignoring case)
