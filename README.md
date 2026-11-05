@@ -54,7 +54,7 @@ The token has the same permissions as your account, so osiris sees exactly the i
 
 ### GitHub
 
-osiris uses a personal access token (PAT) to find open pull requests you authored or were asked to review. Create it in **your own** account settings (profile picture → **Settings** → **Developer settings** → **Personal access tokens**). There are two kinds; pick the one that matches where your pull requests live.
+osiris uses a personal access token (PAT) to find open pull requests you authored or were asked to review, plus the other open pull requests in the same repositories. Create it in **your own** account settings (profile picture → **Settings** → **Developer settings** → **Personal access tokens**). There are two kinds; pick the one that matches where your pull requests live.
 
 #### Option 1: fine-grained token — recommended if everything is in one organization
 
@@ -83,6 +83,8 @@ A classic token sees everything your account can see, unless an organization has
 #### In osiris
 
 Under **Settings → GitHub**, paste the token and click **Test connection** — it should show your GitHub login. Optionally limit the search with **Repositories**: comma-separated `owner/repo` entries, or `owner` for everything a user or organization owns. Leave it empty to search all repositories the token can see. Then click **Fetch** on the **Pull requests** page.
+
+**Other open pull requests** lists everyone else's open pull requests in the configured **Repositories**. While that field is empty, it covers the repositories your own and review-requested pull requests are in.
 
 GitHub Enterprise Server is not supported yet.
 

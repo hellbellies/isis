@@ -54,7 +54,10 @@ const involvesMe = computed(
     <UTooltip v-if="pullRequest.reviewRequested" text="Your review is requested">
       <UIcon name="i-lucide-eye" class="size-4 shrink-0 text-warning" />
     </UTooltip>
-    <UTooltip v-if="!involvesMe" text="No longer needs you (kept for its workstream)">
+    <UTooltip
+      v-if="!involvesMe && !pullRequest.otherOpen"
+      text="No longer needs you (kept for its workstream)"
+    >
       <UIcon name="i-lucide-user-x" class="size-4 shrink-0 text-muted" />
     </UTooltip>
     <UBadge

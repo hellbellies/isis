@@ -19,6 +19,10 @@ const todosStore = useTodosStore();
 const { active: activeWorkstreams } = storeToRefs(workstreamsStore);
 const { issues } = storeToRefs(jiraStore);
 const { pullRequests } = storeToRefs(pullRequestsStore);
+/** The badge counts what needs the user, not the other open pull requests. */
+const myPullRequests = computed(() =>
+  pullRequests.value.filter((pr) => pr.authoredByMe || pr.reviewRequested),
+);
 const { open: openTodos } = storeToRefs(todosStore);
 
 const mainItems = computed<NavigationMenuItem[]>(() => [
@@ -33,7 +37,7 @@ const mainItems = computed<NavigationMenuItem[]>(() => [
     label: "Pull requests",
     icon: "i-lucide-git-pull-request",
     to: "/pull-requests",
-    badge: pullRequests.value.length || undefined,
+    badge: myPullRequests.value.length || undefined,
   },
   {
     label: "Todos",

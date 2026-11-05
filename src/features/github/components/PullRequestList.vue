@@ -24,6 +24,10 @@ const reviewRequested = computed(() => pullRequests.value.filter((pr) => pr.revi
 const authored = computed(() =>
   pullRequests.value.filter((pr) => pr.authoredByMe && !pr.reviewRequested),
 );
+/** Everything else open in the watched repositories. */
+const otherOpen = computed(() =>
+  pullRequests.value.filter((pr) => pr.otherOpen && !pr.authoredByMe && !pr.reviewRequested),
+);
 
 const sections = computed(() => [
   {
@@ -40,6 +44,13 @@ const sections = computed(() => [
     items: authored.value,
     empty: "You have no open pull requests.",
   },
+  {
+    key: "other",
+    title: "Other open pull requests",
+    icon: "i-lucide-git-pull-request",
+    items: otherOpen.value,
+    empty: "No other open pull requests in the repositories you work in or have configured.",
+  },
 ]);
 
 async function sync(): Promise<void> {
@@ -48,8 +59,10 @@ async function sync(): Promise<void> {
 }
 
 function describe(summary: GitHubSyncSummary): string {
-  const fetched = summary.fetched === 1 ? "1 pull request" : `${summary.fetched} pull requests`;
-  return summary.removed ? `${fetched}, ${summary.removed} no longer need you` : fetched;
+  const parts = [summary.fetched === 1 ? "1 pull request" : `${summary.fetched} pull requests`];
+  if (summary.removed) parts.push(`${summary.removed} no longer need you`);
+  if (summary.others) parts.push(`${summary.others} other open`);
+  return parts.join(", ");
 }
 
 // Local data only, so always reload: other views may have changed workstream links.

@@ -1,8 +1,10 @@
 //! Local cache of GitHub pull requests and the sync that fills it.
 //!
 //! The cache holds open pull requests the user authored or was asked to review,
-//! plus pull requests linked to a workstream (kept, and refreshed by id, after they
-//! are merged, closed or no longer involve the user). Anything else is pruned.
+//! the other open pull requests in the watched repositories (the configured ones,
+//! or else those of the user's own pull requests), plus pull requests linked to a
+//! workstream (kept, and refreshed by id, after they are merged, closed or no
+//! longer listed). Anything else is pruned.
 //!
 //! Every sync is a full one: the user's open pull requests are few, so two or
 //! three GraphQL requests replace the need for delta tracking.
@@ -16,22 +18,26 @@ use crate::error::AppResult;
 use crate::models::github::{
     GitHubSyncSummary, PullRequest, PullRequestList, PullRequestState, ReviewDecision,
 };
-use crate::services::github::search_scope;
+use crate::services::github::{scope_qualifiers, search_scope};
 use crate::services::github_client::GitHubClient;
 
 /// Columns read by [`pull_request_from_row`]; `p` is `github_pull_requests`, `w` is `workstream_items`.
 const COLUMNS: &str = "p.id, p.number, p.title, p.url, p.repository, p.author, p.state,
      p.is_draft, p.review_decision, p.updated_at, p.authored_by_me, p.review_requested,
-     w.workstream_id";
+     p.other_open, w.workstream_id";
 const FROM: &str = "github_pull_requests p LEFT JOIN workstream_items w
      ON w.item_type = 'github_pr' AND w.item_id = p.id";
 const INVOLVES_ME: &str = "(p.authored_by_me = 1 OR p.review_requested = 1)";
+/// GitHub rejects search queries longer than this.
+const MAX_QUERY_LENGTH: usize = 256;
 
-/// Pull requests involving the user, most recently updated first.
+/// Pull requests involving the user and other open ones in the watched
+/// repositories, most recently updated first.
 pub fn list(conn: &Connection) -> AppResult<PullRequestList> {
     let pull_requests = conn
         .prepare(&format!(
-            "SELECT {COLUMNS} FROM {FROM} WHERE {INVOLVES_ME} ORDER BY p.updated_at DESC"
+            "SELECT {COLUMNS} FROM {FROM} WHERE {INVOLVES_ME} OR p.other_open = 1
+             ORDER BY p.updated_at DESC"
         ))?
         .query_map([], pull_request_from_row)?
         .collect::<Result<Vec<_>, _>>()?;
@@ -86,18 +92,19 @@ pub fn url(conn: &Connection, id: &str) -> AppResult<Option<String>> {
         .optional()?)
 }
 
-/// Deletes pull requests that neither involve the user nor belong to a workstream.
+/// Deletes pull requests that are neither listed nor linked to a workstream.
 pub fn prune_unlinked(conn: &Connection) -> AppResult<usize> {
     Ok(conn.execute(
         "DELETE FROM github_pull_requests
-         WHERE authored_by_me = 0 AND review_requested = 0 AND id NOT IN
+         WHERE authored_by_me = 0 AND review_requested = 0 AND other_open = 0 AND id NOT IN
              (SELECT item_id FROM workstream_items WHERE item_type = 'github_pr')",
         [],
     )?)
 }
 
 /// Fetches open pull requests the user authored or must review (optionally limited
-/// to `repositories`) and refreshes workstream-linked ones.
+/// to `repositories`), the other open ones in the watched repositories, and
+/// refreshes workstream-linked ones.
 pub async fn sync(
     db: &Db,
     client: &GitHubClient,
@@ -128,45 +135,90 @@ pub async fn sync(
         }
     }
 
+    // Watch the configured repositories, or else the ones the user works in.
+    let watched = if repositories.is_empty() {
+        let mut repos: Vec<String> = mine
+            .values()
+            .map(|pr| format!("repo:{}", pr.repository))
+            .collect();
+        repos.sort();
+        repos.dedup();
+        repos
+    } else {
+        scope_qualifiers(repositories)
+    };
+    let mut other_open: HashMap<String, PullRequest> = HashMap::new();
+    let others_base = "is:pr is:open archived:false -author:@me -review-requested:@me";
+    for query in batched_queries(others_base, &watched) {
+        for mut pr in client.search_pull_requests(&query).await? {
+            if !mine.contains_key(&pr.id) {
+                pr.other_open = true;
+                other_open.insert(pr.id.clone(), pr);
+            }
+        }
+    }
+
     let linked: Vec<String> = linked_ids(&db.lock())?
         .into_iter()
-        .filter(|id| !mine.contains_key(id))
+        .filter(|id| !mine.contains_key(id) && !other_open.contains_key(id))
         .collect();
-    let others = client.pull_requests_by_id(&linked).await?;
+    let linked = client.pull_requests_by_id(&linked).await?;
 
     let mine: Vec<PullRequest> = mine.into_values().collect();
-    apply(&mut db.lock(), &mine, &others, now_ms)
+    let other_open: Vec<PullRequest> = other_open.into_values().collect();
+    apply(&mut db.lock(), &mine, &other_open, &linked, now_ms)
+}
+
+/// `base` plus as many `qualifiers` per query as fit in [`MAX_QUERY_LENGTH`]
+/// (multiple `repo:`/`user:` qualifiers are ORed). None without qualifiers.
+fn batched_queries(base: &str, qualifiers: &[String]) -> Vec<String> {
+    let mut queries = Vec::new();
+    let mut query = base.to_owned();
+    for qualifier in qualifiers {
+        if query.len() > base.len() && query.len() + 1 + qualifier.len() > MAX_QUERY_LENGTH {
+            queries.push(std::mem::replace(&mut query, base.to_owned()));
+        }
+        query.push(' ');
+        query.push_str(qualifier);
+    }
+    if query.len() > base.len() {
+        queries.push(query);
+    }
+    queries
 }
 
 /// Writes a sync in one transaction, so a failure leaves the previous data intact.
 fn apply(
     conn: &mut Connection,
     mine: &[PullRequest],
-    others: &[PullRequest],
+    other_open: &[PullRequest],
+    linked: &[PullRequest],
     now_ms: i64,
 ) -> AppResult<GitHubSyncSummary> {
     let tx = conn.transaction()?;
     let before = involved_ids(&tx)?;
-    // Whatever this sync doesn't report as involving the user no longer does.
+    // Whatever this sync doesn't list is no longer listed.
     tx.execute(
-        "UPDATE github_pull_requests SET authored_by_me = 0, review_requested = 0",
+        "UPDATE github_pull_requests
+         SET authored_by_me = 0, review_requested = 0, other_open = 0",
         [],
     )?;
     {
         let mut upsert = tx.prepare(
             "INSERT INTO github_pull_requests
                  (id, number, title, url, repository, author, state, is_draft,
-                  review_decision, updated_at, authored_by_me, review_requested)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+                  review_decision, updated_at, authored_by_me, review_requested, other_open)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
              ON CONFLICT(id) DO UPDATE SET
                  number = excluded.number, title = excluded.title, url = excluded.url,
                  repository = excluded.repository, author = excluded.author,
                  state = excluded.state, is_draft = excluded.is_draft,
                  review_decision = excluded.review_decision, updated_at = excluded.updated_at,
                  authored_by_me = excluded.authored_by_me,
-                 review_requested = excluded.review_requested",
+                 review_requested = excluded.review_requested,
+                 other_open = excluded.other_open",
         )?;
-        for pr in mine.iter().chain(others) {
+        for pr in mine.iter().chain(other_open).chain(linked) {
             upsert.execute(params![
                 pr.id,
                 pr.number,
@@ -179,7 +231,8 @@ fn apply(
                 pr.review_decision.map(review_decision_to_db),
                 pr.updated_at,
                 pr.authored_by_me,
-                pr.review_requested
+                pr.review_requested,
+                pr.other_open
             ])?;
         }
     }
@@ -194,6 +247,7 @@ fn apply(
     Ok(GitHubSyncSummary {
         fetched: mine.len(),
         removed: before.difference(&after).count(),
+        others: other_open.len(),
     })
 }
 
@@ -206,7 +260,9 @@ fn linked_ids(conn: &Connection) -> AppResult<Vec<String>> {
 
 fn involved_ids(conn: &Connection) -> AppResult<HashSet<String>> {
     Ok(conn
-        .prepare("SELECT id FROM github_pull_requests p WHERE (p.authored_by_me = 1 OR p.review_requested = 1)")?
+        .prepare(&format!(
+            "SELECT id FROM github_pull_requests p WHERE {INVOLVES_ME}"
+        ))?
         .query_map([], |row| row.get(0))?
         .collect::<Result<HashSet<_>, _>>()?)
 }
@@ -227,7 +283,8 @@ fn pull_request_from_row(row: &Row<'_>) -> rusqlite::Result<PullRequest> {
         updated_at: row.get(9)?,
         authored_by_me: row.get(10)?,
         review_requested: row.get(11)?,
-        workstream_id: row.get(12)?,
+        other_open: row.get(12)?,
+        workstream_id: row.get(13)?,
     })
 }
 
@@ -283,17 +340,39 @@ mod tests {
         requested: &[String],
         by_id: &[String],
     ) {
+        mock_github_with_others(server, authored, requested, &[], by_id).await;
+    }
+
+    /// Like [`mock_github`], plus the search for other open pull requests, which
+    /// must be scoped to `acme/app` (the repository of every `pr_json`).
+    async fn mock_github_with_others(
+        server: &mut Server,
+        authored: &[String],
+        requested: &[String],
+        others: &[String],
+        by_id: &[String],
+    ) {
         server.reset();
+        // The user's own searches end with their `@me` qualifier; the other search
+        // excludes both (`-author:@me -review-requested:@me`).
         server
             .mock("POST", "/graphql")
-            .match_body(Matcher::Regex("author:@me".into()))
+            .match_body(Matcher::Regex(r#"[^-]author:@me""#.into()))
             .with_body(search_page(authored, None))
             .create_async()
             .await;
         server
             .mock("POST", "/graphql")
-            .match_body(Matcher::Regex("review-requested:@me".into()))
+            .match_body(Matcher::Regex(r#"[^-]review-requested:@me""#.into()))
             .with_body(search_page(requested, None))
+            .create_async()
+            .await;
+        server
+            .mock("POST", "/graphql")
+            .match_body(Matcher::Regex(
+                r#"-review-requested:@me repo:acme/app""#.into(),
+            ))
+            .with_body(search_page(others, None))
             .create_async()
             .await;
         server
@@ -391,7 +470,8 @@ mod tests {
             .mock("POST", "/graphql")
             .match_body(Matcher::Regex("repo:acme/app user:octo".into()))
             .with_body(search_page(&[], None))
-            .expect(2)
+            // Authored, review requested, and the other open pull requests.
+            .expect(3)
             .create_async()
             .await;
         server
@@ -405,6 +485,62 @@ mod tests {
             .await
             .unwrap();
         scoped.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn sync_lists_other_open_pull_requests_in_the_users_repositories() {
+        let mut server = Server::new_async().await;
+        let db = Db::new(db::open_in_memory());
+        let github = client(&server.url());
+        // The other search may still return the user's own pull request; it stays "mine".
+        mock_github_with_others(
+            &mut server,
+            &[pr_json("PR_1", 1, "OPEN")],
+            &[],
+            &[pr_json("PR_1", 1, "OPEN"), pr_json("PR_9", 9, "OPEN")],
+            &[],
+        )
+        .await;
+        let summary = sync(&db, &github, &[], NOW).await.unwrap();
+        assert_eq!((summary.fetched, summary.others), (1, 1));
+
+        let list = list(&db.lock()).unwrap().pull_requests;
+        let flags = |id: &str| {
+            let pr = list.iter().find(|pr| pr.id == id).unwrap();
+            (pr.authored_by_me, pr.other_open)
+        };
+        assert_eq!(flags("PR_1"), (true, false));
+        assert_eq!(flags("PR_9"), (false, true));
+
+        // Once it is no longer open (or listed), it is pruned.
+        mock_github(&mut server, &[pr_json("PR_1", 1, "OPEN")], &[], &[]).await;
+        let summary = sync(&db, &github, &[], NOW + 1).await.unwrap();
+        assert_eq!((summary.removed, summary.others), (0, 0));
+        assert_eq!(listed_ids(&db), ["PR_1"]);
+        assert!(!exists(&db.lock(), "PR_9").unwrap());
+    }
+
+    #[test]
+    fn batched_queries_keep_each_query_short_enough() {
+        let base = "is:pr is:open";
+        assert!(batched_queries(base, &[]).is_empty());
+        assert_eq!(
+            batched_queries(base, &["repo:a/b".into(), "user:c".into()]),
+            ["is:pr is:open repo:a/b user:c"]
+        );
+
+        let qualifiers: Vec<String> = (0..40)
+            .map(|i| format!("repo:acme/repository-{i}"))
+            .collect();
+        let queries = batched_queries(base, &qualifiers);
+        assert!(queries.len() > 1);
+        assert!(
+            queries
+                .iter()
+                .all(|q| q.len() <= MAX_QUERY_LENGTH && q.starts_with(base))
+        );
+        let joined = queries.join(" ");
+        assert!(qualifiers.iter().all(|q| joined.contains(q.as_str())));
     }
 
     #[tokio::test]

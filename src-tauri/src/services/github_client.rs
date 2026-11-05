@@ -247,6 +247,7 @@ impl From<PullRequestNode> for PullRequest {
             // Local state, decided by the sync and workstream links.
             authored_by_me: false,
             review_requested: false,
+            other_open: false,
             workstream_id: None,
         }
     }
