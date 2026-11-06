@@ -32,6 +32,7 @@ pub fn run() {
             commands::github::clear_github_token,
             commands::github::test_github_connection,
             commands::github::list_pull_requests,
+            commands::github::list_jira_issue_pull_requests,
             commands::github::sync_pull_requests,
             commands::github::open_pull_request,
             commands::todos::list_todos,

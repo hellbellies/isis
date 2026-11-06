@@ -52,6 +52,13 @@ export interface PullRequestList {
   lastSyncedAt: number | null;
 }
 
+/** Mirrors `JiraIssuePullRequest` in `src-tauri/src/models/github.rs`. */
+export interface JiraIssuePullRequest {
+  /** Jira's issue id (not the key). */
+  issueId: string;
+  pullRequest: PullRequest;
+}
+
 /** Mirrors `GitHubSyncSummary` in `src-tauri/src/models/github.rs`. */
 export interface GitHubSyncSummary {
   fetched: number;

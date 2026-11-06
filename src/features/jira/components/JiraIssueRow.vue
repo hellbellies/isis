@@ -53,6 +53,8 @@ const statusColor = computed(() => {
     >
       {{ issue.summary }}
     </ULink>
+    <!-- Related items from other features, e.g. pull requests mentioning the issue. -->
+    <slot name="related" />
     <UTooltip v-if="!issue.assignedToMe" text="No longer assigned to you">
       <UIcon name="i-lucide-user-x" class="size-4 shrink-0 text-muted" />
     </UTooltip>

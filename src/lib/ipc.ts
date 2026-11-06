@@ -6,6 +6,7 @@ import type {
   GitHubSyncSummary,
   GitHubUser,
   JiraIssueList,
+  JiraIssuePullRequest,
   JiraSettings,
   JiraSettingsInput,
   JiraStatusFilter,
@@ -45,6 +46,7 @@ interface Commands {
   clear_github_token: { args: Record<string, never>; result: GitHubSettings };
   test_github_connection: { args: { token: string | null }; result: GitHubUser };
   list_pull_requests: { args: Record<string, never>; result: PullRequestList };
+  list_jira_issue_pull_requests: { args: Record<string, never>; result: JiraIssuePullRequest[] };
   sync_pull_requests: { args: Record<string, never>; result: GitHubSyncSummary };
   open_pull_request: { args: { id: string }; result: null };
   list_todos: { args: Record<string, never>; result: Todo[] };

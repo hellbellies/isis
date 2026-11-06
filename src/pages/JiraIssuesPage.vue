@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { JiraIssuePullRequests } from "@/features/github";
 import { JiraIssueList, useJiraIssuesStore } from "@/features/jira";
 import { WorkstreamSelect } from "@/features/workstreams";
 
@@ -12,6 +13,9 @@ const jiraStore = useJiraIssuesStore();
     </template>
     <template #body>
       <JiraIssueList>
+        <template #related="{ issue }">
+          <JiraIssuePullRequests :issue-id="issue.id" />
+        </template>
         <template #actions="{ issue }">
           <WorkstreamSelect
             :item="{ itemType: 'jiraIssue', itemId: issue.id }"

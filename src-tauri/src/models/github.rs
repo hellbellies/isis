@@ -76,6 +76,16 @@ pub struct PullRequest {
     pub workstream_id: Option<i64>,
 }
 
+/// A pull request that mentions a Jira issue's key.
+/// Mirrored by `JiraIssuePullRequest` in `src/types/github.ts`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JiraIssuePullRequest {
+    /// Jira's issue id (not the key).
+    pub issue_id: String,
+    pub pull_request: PullRequest,
+}
+
 /// Mirrored by `PullRequestList` in `src/types/github.ts`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]

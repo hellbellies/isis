@@ -61,6 +61,34 @@ impl GitHubClient {
 
     /// Pull requests matching a GitHub search query (e.g. `is:pr author:@me`), all pages.
     pub async fn search_pull_requests(&self, query: &str) -> AppResult<Vec<PullRequest>> {
+        Ok(parse_nodes(self.search_nodes(query, PR_FIELDS).await?).collect())
+    }
+
+    /// Like [`Self::search_pull_requests`], each with the text an issue key may be
+    /// mentioned in: title, head branch name and description.
+    pub async fn search_pull_requests_with_text(
+        &self,
+        query: &str,
+    ) -> AppResult<Vec<(PullRequest, String)>> {
+        let fields = format!("{PR_FIELDS} headRefName bodyText");
+        let nodes = self.search_nodes(query, &fields).await?;
+        Ok(nodes
+            .into_iter()
+            .flatten()
+            .filter_map(|node| {
+                let text = ["title", "headRefName", "bodyText"]
+                    .iter()
+                    .filter_map(|field| node.get(field)?.as_str())
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                let node = serde_json::from_value::<PullRequestNode>(node).ok()?;
+                Some((node.into(), text))
+            })
+            .collect())
+    }
+
+    /// Raw search result nodes with the given pull request `fields`, all pages.
+    async fn search_nodes(&self, query: &str, fields: &str) -> AppResult<Vec<Option<Value>>> {
         #[derive(Deserialize)]
         struct Data {
             search: SearchConnection,
@@ -83,23 +111,23 @@ impl GitHubClient {
             "query($q: String!, $cursor: String) {{
                search(query: $q, type: ISSUE, first: 100, after: $cursor) {{
                  pageInfo {{ hasNextPage endCursor }}
-                 nodes {{ ... on PullRequest {{ {PR_FIELDS} }} }}
+                 nodes {{ ... on PullRequest {{ {fields} }} }}
                }}
              }}"
         );
-        let mut pull_requests = Vec::new();
+        let mut nodes = Vec::new();
         let mut cursor: Option<String> = None;
         for _ in 0..MAX_SEARCH_PAGES {
             let data: Data = self
                 .graphql(&gql, json!({ "q": query, "cursor": cursor }))
                 .await?;
-            pull_requests.extend(parse_nodes(data.search.nodes));
+            nodes.extend(data.search.nodes);
             match data.search.page_info.end_cursor {
                 Some(next) if data.search.page_info.has_next_page => cursor = Some(next),
                 _ => break,
             }
         }
-        Ok(pull_requests)
+        Ok(nodes)
     }
 
     /// Looks pull requests up by node id. Ids that no longer resolve (deleted,
