@@ -17,6 +17,10 @@ export default defineConfig(() => ({
       autoImport: false,
       // Components (U*) are auto-registered; types land in components.d.ts.
       components: { dts: "src/components.d.ts" },
+      // Bundle every `i-lucide-*` icon named in the source: the built app's CSP blocks
+      // the Iconify API, which only the dev server (without that CSP) can reach.
+      // The default scan skips `.ts` files, so name the globs explicitly.
+      icon: { clientBundle: { scan: { globInclude: ["src/**/*.{vue,ts}"] } } },
       // Nuxt UI's defaults plus `epic`, which colors Jira epic badges.
       theme: { colors: ["primary", "secondary", "success", "info", "warning", "error", "epic"] },
       ui: {
