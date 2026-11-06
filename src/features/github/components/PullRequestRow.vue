@@ -1,29 +1,14 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { usePullRequestsStore } from "../stores/pullRequestsStore";
+import { pullRequestStatus } from "./pullRequestStatus";
 import type { PullRequest } from "@/types";
 
 const props = defineProps<{ pullRequest: PullRequest }>();
 
 const store = usePullRequestsStore();
 
-type BadgeColor = "neutral" | "info" | "success" | "warning" | "error" | "primary";
-
-/** Merged/closed first, then draft, then the review decision of an open PR. */
-const statusBadge = computed<{ label: string; color: BadgeColor }>(() => {
-  const pr = props.pullRequest;
-  if (pr.state === "merged") return { label: "Merged", color: "primary" };
-  if (pr.state === "closed") return { label: "Closed", color: "error" };
-  if (pr.isDraft) return { label: "Draft", color: "neutral" };
-  switch (pr.reviewDecision) {
-    case "approved":
-      return { label: "Approved", color: "success" };
-    case "changes_requested":
-      return { label: "Changes requested", color: "warning" };
-    default:
-      return { label: "In review", color: "info" };
-  }
-});
+const statusBadge = computed(() => pullRequestStatus(props.pullRequest));
 
 const involvesMe = computed(
   () => props.pullRequest.authoredByMe || props.pullRequest.reviewRequested,

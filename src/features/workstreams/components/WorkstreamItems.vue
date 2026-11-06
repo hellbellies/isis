@@ -3,7 +3,7 @@ import { onMounted, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
 import { useToast } from "@nuxt/ui/composables";
 import { JiraIssueRow, useJiraIssuesStore } from "@/features/jira";
-import { PullRequestRow } from "@/features/github";
+import { JiraIssuePullRequests, PullRequestRow } from "@/features/github";
 import { TodoEditModal, TodoRow } from "@/features/todos";
 import { useWorkstreamsStore } from "../stores/workstreamsStore";
 import type { AppError, Todo, WorkstreamItemRef } from "@/types";
@@ -119,6 +119,9 @@ onMounted(() => {
 
       <ul v-if="current.jiraIssues.length" class="divide-y divide-default">
         <JiraIssueRow v-for="issue in current.jiraIssues" :key="issue.id" :issue="issue">
+          <template #related>
+            <JiraIssuePullRequests :issue-id="issue.id" />
+          </template>
           <template #actions>
             <UTooltip text="Remove from workstream">
               <UButton

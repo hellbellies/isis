@@ -3,9 +3,11 @@ import { ref } from "vue";
 import { call } from "@/lib/ipc";
 import type { AppError, GitHubSyncSummary, PullRequest } from "@/types";
 
-/** Cached pull requests that involve the user. */
+/** Cached pull requests: the listed ones, and those mentioning Jira issues. */
 export const usePullRequestsStore = defineStore("pullRequests", () => {
   const pullRequests = ref<PullRequest[]>([]);
+  /** Pull requests (any state) mentioning each Jira issue, keyed by Jira issue id. */
+  const byJiraIssue = ref<Record<string, PullRequest[]>>({});
   const lastSyncedAt = ref<number | null>(null);
   const loaded = ref(false);
   const syncing = ref(false);
@@ -15,9 +17,17 @@ export const usePullRequestsStore = defineStore("pullRequests", () => {
   async function load(): Promise<void> {
     error.value = null;
     try {
-      const list = await call("list_pull_requests");
+      const [list, mentions] = await Promise.all([
+        call("list_pull_requests"),
+        call("list_jira_issue_pull_requests"),
+      ]);
       pullRequests.value = list.pullRequests;
       lastSyncedAt.value = list.lastSyncedAt;
+      const grouped: Record<string, PullRequest[]> = {};
+      for (const { issueId, pullRequest } of mentions) {
+        (grouped[issueId] ??= []).push(pullRequest);
+      }
+      byJiraIssue.value = grouped;
     } catch (err: unknown) {
       error.value = err as AppError;
     } finally {
@@ -55,5 +65,16 @@ export const usePullRequestsStore = defineStore("pullRequests", () => {
     }
   }
 
-  return { pullRequests, lastSyncedAt, loaded, syncing, error, load, sync, applyWorkstream, open };
+  return {
+    pullRequests,
+    byJiraIssue,
+    lastSyncedAt,
+    loaded,
+    syncing,
+    error,
+    load,
+    sync,
+    applyWorkstream,
+    open,
+  };
 });

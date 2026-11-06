@@ -5,7 +5,8 @@ use super::now_ms;
 use crate::db::Db;
 use crate::error::{AppError, AppResult};
 use crate::models::github::{
-    GitHubSettings, GitHubSettingsInput, GitHubSyncSummary, GitHubUser, PullRequestList,
+    GitHubSettings, GitHubSettingsInput, GitHubSyncSummary, GitHubUser, JiraIssuePullRequest,
+    PullRequestList,
 };
 use crate::services::github_client::GitHubClient;
 use crate::services::secrets::KeyringStore;
@@ -43,6 +44,14 @@ pub async fn test_github_connection(token: Option<String>) -> AppResult<GitHubUs
 #[tauri::command]
 pub async fn list_pull_requests(db: State<'_, Db>) -> AppResult<PullRequestList> {
     pull_requests::list(&db.lock())
+}
+
+/// Cached pull requests mentioning each Jira issue, in any state.
+#[tauri::command]
+pub async fn list_jira_issue_pull_requests(
+    db: State<'_, Db>,
+) -> AppResult<Vec<JiraIssuePullRequest>> {
+    pull_requests::list_for_jira_issues(&db.lock())
 }
 
 #[tauri::command]

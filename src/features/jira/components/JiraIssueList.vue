@@ -9,6 +9,8 @@ import JiraStatusFilter from "./JiraStatusFilter.vue";
 import type { JiraIssue, JiraSyncSummary } from "@/types";
 
 defineSlots<{
+  /** Related items shown after each row's summary. */
+  related?(props: { issue: JiraIssue }): unknown;
   /** Extra controls at the end of each row. */
   actions?(props: { issue: JiraIssue }): unknown;
 }>();
@@ -89,6 +91,9 @@ onMounted(() => void store.load());
 
     <ul v-if="visibleIssues.length" class="divide-y divide-default">
       <JiraIssueRow v-for="issue in visibleIssues" :key="issue.id" :issue="issue">
+        <template #related>
+          <slot name="related" :issue="issue" />
+        </template>
         <template #actions>
           <slot name="actions" :issue="issue" />
         </template>
