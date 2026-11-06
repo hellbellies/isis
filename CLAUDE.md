@@ -55,7 +55,7 @@ src-tauri/migrations/     NNN_<name>.sql, applied in order by rusqlite_migration
 - The root component is wrapped in `<UApp>` (needed for toasts, tooltips, overlays). `App.vue` holds the `UDashboardGroup` + sidebar; each page renders a `UDashboardPanel` with a `UDashboardNavbar`.
 - Theme colors are set in `vite.config.ts` (`ui.colors`). Style with Tailwind utilities and Nuxt UI semantic classes (`text-muted`, `text-highlighted`, `bg-elevated`, …) rather than raw palette colors, so dark mode works automatically. Use the `ui` prop for per-instance overrides.
 - Dark mode is driven by VueUse `useColorMode`, kept in sync with the Rust-persisted setting by `useThemeSync`. Don't toggle the `dark` class manually.
-- Icons: Lucide (`i-lucide-*`), bundled locally from `@iconify-json/lucide` by scanning source files. Always write icon names as full string literals so the scanner finds them. The CSP blocks the Iconify API, so the app works offline.
+- Icons: Lucide (`i-lucide-*`), bundled locally from `@iconify-json/lucide` by scanning `src/**/*.{vue,ts}` (`icon.clientBundle.scan` in `vite.config.ts`). Always write icon names as full string literals so the scanner finds them. The built app's CSP blocks the Iconify API, so an icon the scan misses works in `pnpm tauri dev` but is blank in the build.
 - Put a component in `src/components/` only when it is shared across features; otherwise keep it in its feature folder.
 
 ## Adding a command (checklist)
